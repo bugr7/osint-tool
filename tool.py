@@ -85,19 +85,21 @@ def ask_yes_no(question, color=Fore.YELLOW):
 
 
 def main():
-    print(Fore.GREEN + """
- /$$$$$$$                                   /$$$$$$$$
-| $$__  $$                                 |_____ $$/ 
-| $$  \ $$ /$$   /$$  /$$$$$$         /$$$$$$   /$$/  
-| $$$$$$$ | $$  | $$ /$$__  $$       /$$__  $$ /$$/   
-| $$__  $$| $$  | $$| $$  \ $$      | $$  \__//$$/    
-| $$  \ $$| $$  | $$| $$  | $$      | $$     /$$/     
-| $$$$$$$/|  $$$$$$/|  $$$$$$$      | $$    /$$/      
-|_______/  \______/  \____  $$      |__/   |__/       
-                     /$$  \ $$                        
-                    |  $$$$$$/                        
-                     \______/                         
-""" + Fore.RED + "OSINT Tool - DDGS Multithreaded v0.4" + Fore.GREEN + "\n", flush=True)
+    ascii_art = r"""
+     /$$$$$$$                                   /$$$$$$$$
+    | $$__  $$                                 |_____ $$/ 
+    | $$  \ $$ /$$   /$$  /$$$$$$         /$$$$$$   /$$/  
+    | $$$$$$$ | $$  | $$ /$$__  $$       /$$__  $$ /$$/   
+    | $$__  $$| $$  | $$| $$  \ $$      | $$  \__//$$/    
+    | $$  \ $$| $$  | $$| $$  | $$      | $$     /$$/     
+    | $$$$$$$/|  $$$$$$/|  $$$$$$$      | $$    /$$/      
+    |_______/  \______/  \____  $$      |__/   |__/       
+                         /$$  \ $$                        
+                        |  $$$$$$/                        
+                         \______/                         
+    """
+    print(Fore.GREEN + ascii_art + Fore.RED + "OSINT Tool - DDGS Multithreaded v0.4" + Fore.GREEN + "\n", flush=True)
+
 
     print(Fore.WHITE + "🔎 Platforms covered: Facebook, Instagram, Youtube, TikTok, Snapchat, Reddit, Twitter, Pinterest, LinkedIn\n", flush=True)
 
@@ -145,3 +147,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
