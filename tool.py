@@ -7,8 +7,10 @@ import requests
 
 init(autoreset=True)
 
+# رابط الـ API المستضاف على Railway
 API_URL = os.getenv("API_URL", "https://osint-tool-production.up.railway.app/search")
 
+# المنصات المدعومة
 PLATFORMS = {
     "Facebook": ("facebook.com", Back.BLUE),
     "Instagram": ("instagram.com", Back.MAGENTA),
@@ -25,23 +27,27 @@ REQUEST_DELAY = 0.3
 
 
 def search_via_api(identifier):
+    """التواصل مع API Railway لجلب النتائج"""
     try:
-        response = requests.post(API_URL, json={"identifier": identifier}, timeout=20)
+        response = requests.post(API_URL, json={"identifier": identifier}, timeout=25)
         if response.status_code == 200:
-            return response.json()
+            data = response.json()
+            if isinstance(data, list):
+                return data
+            else:
+                print(Fore.RED + "[!] Unexpected API response format", flush=True)
+                return []
         else:
             print(Fore.RED + f"[!] API returned status {response.status_code}", flush=True)
-            print(f"API status: {response.status_code}")
-            print(f"API text: {response.text[:300]}")
+            print(f"API text: {response.text[:200]}")
             return []
     except Exception as e:
         print(Fore.RED + f"[!] API request failed: {e}", flush=True)
-        print(f"API status: {response.status_code}")
-        print(f"API text: {response.text[:300]}")
         return []
 
 
 def print_platform_frame(platform_name, links, color_bg):
+    """تصميم الإطار لكل منصة"""
     header = f"{platform_name} - {len(links)}/10"
     top = "╭─ " + header + " ─╮"
     bottom = "╰" + "─" * (len(top) - 2) + "╯"
@@ -59,6 +65,7 @@ def print_platform_frame(platform_name, links, color_bg):
 
 
 def ask_yes_no(question, color=Fore.YELLOW):
+    """سؤال المستخدم yes/no"""
     while True:
         answer = input(color + question + " (yes/no): " + Style.RESET_ALL).strip().lower()
         if answer in ("yes", "y"):
@@ -70,6 +77,7 @@ def ask_yes_no(question, color=Fore.YELLOW):
 
 
 def main():
+    # ASCII Art
     ascii_art = r"""
  /$$$$$$$                                   /$$$$$$$$
 | $$__  $$                                 |_____ $$/
@@ -87,39 +95,40 @@ def main():
 
     print(Fore.WHITE + "🔎 Platforms covered: Facebook, Instagram, Youtube, TikTok, Snapchat, Reddit, Twitter, Pinterest, LinkedIn\n", flush=True)
 
-    # الحصول على IP و Country
+    # عرض معلومات عن الجهاز + الدولة
     try:
-        ip = requests.get("https://api64.ipify.org?format=json", timeout=15).json().get("ip", "Unknown")
-        country = requests.get(f"https://ipapi.co/{ip}/json/", timeout=15).json().get("country_name", "Unknown")
+        ip = requests.get("https://api64.ipify.org?format=json", timeout=10).json().get("ip", "Unknown")
+        country = requests.get(f"https://ipapi.co/{ip}/json/", timeout=10).json().get("country_name", "Unknown")
     except Exception:
         ip, country = "Unknown", "Unknown"
 
     username = platform.node()
     os_name = platform.system() + " " + platform.release()
+    print(Fore.YELLOW + f"[i] Your System: {os_name} | User: {username} | IP: {ip} | Country: {country}\n", flush=True)
 
+    # لوب البحث
     while True:
         identifier = input(Fore.CYAN + "[?] Enter username or firstname and lastname: " + Style.RESET_ALL).strip()
         if not identifier:
             print(Fore.RED + "[!] No input provided.", flush=True)
             continue
 
-        # سؤال permission قبل البحث
+        # تحقق من الـ permission
         if not ask_yes_no("[?] Do you have permission to search this account?"):
             print(Fore.RED + "[!] Permission not confirmed. Exiting.", flush=True)
             continue
 
-        # جلب النتائج عبر API (Railway/Turso server)
+        # استدعاء API
         api_results = search_via_api(identifier)
         print(Fore.GREEN + f"[✔] Fetched {len(api_results)} results from API.", flush=True)
 
-        # عرض النتائج مصنفة حسب المنصات مع نفس التصميم
+        # طباعة النتائج حسب كل منصة
         for platform_name, (domain, color_bg) in PLATFORMS.items():
             links = [r["link"] for r in api_results if r.get("platform") == platform_name]
             print_platform_frame(platform_name, links, color_bg)
-            # قليل من التأخير بين الطباعة لتحسين الـ UX
             time.sleep(REQUEST_DELAY)
 
-        # إعادة البحث
+        # سؤال إعادة البحث
         if not ask_yes_no("\n[?] Do you want to search again?"):
             print(Fore.GREEN + "\n[✔] Exiting OSINT tool. Bye 👋", flush=True)
             break
@@ -127,4 +136,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
