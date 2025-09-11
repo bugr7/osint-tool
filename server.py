@@ -1,9 +1,10 @@
 from flask import Flask, request, jsonify
 from libsql_client import create_client_sync
 from migrate import migrate
-from ddgs import DDGS
 import os
 import time
+import requests
+from bs4 import BeautifulSoup
 
 app = Flask(__name__)
 
@@ -41,21 +42,29 @@ PLATFORMS = {
 }
 
 REQUEST_DELAY = 0.3
-ddgs = DDGS()
+
 
 def duckduckgo_search_links(query, site=None, num_results=10):
     search_query = f"{query} site:{site}" if site else query
+    url = "https://html.duckduckgo.com/html/"
+    params = {"q": search_query}
+
     links = []
     try:
-        results = ddgs.text(search_query, max_results=num_results)
-        for r in results:
-            if "href" in r and r["href"]:
-                links.append(r["href"])
-            if len(links) >= num_results:
-                break
+        resp = requests.post(url, data=params, headers={"User-Agent": "Mozilla/5.0"})
+        if resp.status_code == 200:
+            soup = BeautifulSoup(resp.text, "html.parser")
+            for a in soup.select("a.result__a"):
+                link = a.get("href")
+                if link and link.startswith("http"):
+                    links.append(link)
+                if len(links) >= num_results:
+                    break
     except Exception as e:
         print(f"⚠️ Error searching {site}: {e}")
+
     return links
+
 
 @app.route("/search", methods=["POST"])
 def search():
@@ -78,6 +87,7 @@ def search():
         time.sleep(REQUEST_DELAY)
 
     return jsonify(results)
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
