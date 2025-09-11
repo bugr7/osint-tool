@@ -57,30 +57,31 @@ MAX_RETRIES = 2
 session = requests.Session()
 
 
-def duckduckgo_search_links(query, site=None, num_results=10, retries=0):
+def duckduckgo_search_links(query, site=None, num_results=10):
     search_query = f"{query} site:{site}" if site else query
     url = "https://html.duckduckgo.com/html/"
     params = {"q": search_query}
 
     links = []
     try:
-        resp = session.post(url, data=params, headers={"User-Agent": "Mozilla/5.0"})
+        resp = requests.post(url, data=params, headers={"User-Agent": "Mozilla/5.0"})
+        print(f"🔎 Searching: {search_query} | Status: {resp.status_code}")  # Debug
         if resp.status_code == 200:
             soup = BeautifulSoup(resp.text, "html.parser")
-            for a in soup.select("a.result__a"):
+            anchors = soup.select("a.result__a")
+            print(f"✅ Found {len(anchors)} anchors for {site}")  # Debug
+            for a in anchors:
                 link = a.get("href")
                 if link and link.startswith("http"):
                     links.append(link)
                 if len(links) >= num_results:
                     break
+        else:
+            print("❌ DuckDuckGo returned status:", resp.status_code)
     except Exception as e:
-        print(f"⚠️ Error searching {site}: {e}")
-
-    # retry لو رجع فارغ
-    if not links and retries < MAX_RETRIES:
-        print(f"⚠️ Retry {retries+1} for {site}...")
-        time.sleep(2)
-        return duckduckgo_search_links(query, site, num_results, retries+1)
+        print("⚠️ Error searching:", e)
+        import traceback
+        traceback.print_exc()
 
     return links
 
@@ -127,3 +128,4 @@ def search():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+
