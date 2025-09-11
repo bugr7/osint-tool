@@ -31,9 +31,13 @@ def search_via_api(identifier):
             return response.json()
         else:
             print(Fore.RED + f"[!] API returned status {response.status_code}", flush=True)
+            print(f"API status: {response.status_code}")
+            print(f"API text: {response.text[:300]}")
             return []
     except Exception as e:
         print(Fore.RED + f"[!] API request failed: {e}", flush=True)
+        print(f"API status: {response.status_code}")
+        print(f"API text: {response.text[:300]}")
         return []
 
 
@@ -123,3 +127,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
