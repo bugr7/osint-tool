@@ -41,7 +41,7 @@ PLATFORMS = {
     "LinkedIn": "linkedin.com",
 }
 
-REQUEST_DELAY = 0.3
+REQUEST_DELAY = 1.0
 
 
 def duckduckgo_search_links(query, site=None, num_results=10):
@@ -51,7 +51,7 @@ def duckduckgo_search_links(query, site=None, num_results=10):
 
     links = []
     try:
-        resp = requests.post(url, data=params, headers={"User-Agent": "Mozilla/5.0"})
+        resp = requests.post(url, data=params, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
         if resp.status_code == 200:
             soup = BeautifulSoup(resp.text, "html.parser")
             for a in soup.select("a.result__a"):
