@@ -3,4 +3,5 @@ requests
 python-dotenv
 colorama
 ddgs
+beautifulsoup4
 libsql-client
