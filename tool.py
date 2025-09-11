@@ -1,10 +1,10 @@
 import os
 import platform
 import time
+import threading
 from colorama import Fore, Back, init, Style
 import requests
 from ddgs import DDGS
-from threading import Thread
 
 init(autoreset=True)
 
@@ -22,8 +22,9 @@ PLATFORMS = {
     "LinkedIn": ("linkedin.com", Back.LIGHTCYAN_EX),
 }
 
-REQUEST_DELAY = 0.1  # أصغر تأخير لأنه multithreaded
+REQUEST_DELAY = 0.3
 ddgs = DDGS()
+
 
 def duckduckgo_search_links(query, site=None, num_results=10):
     search_query = f"{query} site:{site}" if site else query
@@ -36,8 +37,9 @@ def duckduckgo_search_links(query, site=None, num_results=10):
             if len(links) >= num_results:
                 break
     except Exception as e:
-        print(Fore.RED + f"⚠️ Error searching {site}: {e}")
+        print(Fore.RED + f"⚠️ Error searching {site}: {e}", flush=True)
     return links
+
 
 def search_via_api(identifier):
     try:
@@ -45,31 +47,32 @@ def search_via_api(identifier):
         if response.status_code == 200:
             return response.json()
         else:
-            print(Fore.RED + f"[!] API returned status {response.status_code}")
+            print(Fore.RED + f"[!] API returned status {response.status_code}", flush=True)
             return []
     except Exception as e:
-        print(Fore.RED + f"[!] API request failed: {e}")
+        print(Fore.RED + f"[!] API request failed: {e}", flush=True)
         return []
+
 
 def print_platform_frame(platform_name, links, color_bg):
     header = f"{platform_name} - {len(links)}/10"
     top = "╭─ " + header + " ─╮"
     bottom = "╰" + "─" * (len(top) - 2) + "╯"
-    print(color_bg + Fore.WHITE + top + Style.RESET_ALL)
+    print(color_bg + Fore.WHITE + top + Style.RESET_ALL, flush=True)
     if links:
         for link in links:
-            print(Fore.CYAN + f"   {link}")
+            print(Fore.CYAN + f"   {link}", flush=True)
     else:
-        print(Fore.RED + "   No results found.")
-    print(color_bg + Fore.WHITE + bottom + Style.RESET_ALL)
-    print()
+        print(Fore.RED + "   No results found.", flush=True)
+    print(color_bg + Fore.WHITE + bottom + Style.RESET_ALL, flush=True)
+    print(flush=True)
 
-# ===== البحث لكل منصة في thread =====
-def search_platform(identifier, platform_name, domain, color_bg):
+
+def fetch_and_print(identifier, platform_name, domain, color_bg):
     links = duckduckgo_search_links(identifier, domain)
     print_platform_frame(platform_name, links, color_bg)
 
-# ===== البرنامج الرئيسي =====
+
 def main():
     print(Fore.GREEN + """
  /$$$$$$$                                   /$$$$$$$$
@@ -83,9 +86,9 @@ def main():
                      /$$  \ $$                        
                     |  $$$$$$/                        
                      \______/                         
-""" + Fore.RED + "OSINT Tool - DDGS Multithreaded version 0.3" + Fore.GREEN + "\n")
+""" + Fore.RED + "OSINT Tool - DDGS Multithreaded v0.3" + Fore.GREEN + "\n", flush=True)
 
-    print(Fore.WHITE + "🔎 Platforms covered: Facebook, Instagram, Youtube, TikTok, Snapchat, Reddit, Twitter, Pinterest, LinkedIn\n")
+    print(Fore.WHITE + "🔎 Platforms covered: Facebook, Instagram, Youtube, TikTok, Snapchat, Reddit, Twitter, Pinterest, LinkedIn\n", flush=True)
 
     # الحصول على IP و Country
     try:
@@ -98,30 +101,34 @@ def main():
     os_name = platform.system() + " " + platform.release()
 
     while True:
-        identifier = input(Fore.CYAN + "[?] Enter username or firstname and lastname: " + Style.RESET_ALL).strip()
+        print(Fore.CYAN + "[?] Enter username or firstname and lastname: " + Style.RESET_ALL, end='', flush=True)
+        identifier = input().strip()
         if not identifier:
-            print(Fore.RED + "[!] No input provided.")
+            print(Fore.RED + "[!] No input provided.", flush=True)
             continue
 
         # جلب البيانات عبر API
         api_results = search_via_api(identifier)
-        print(Fore.GREEN + f"[✔] Fetched {len(api_results)} results from API.\n")
+        print(Fore.GREEN + f"[✔] Fetched {len(api_results)} results from API.", flush=True)
 
-        # ===== تشغيل البحث multithread لكل منصة =====
+        # multithreading لكل منصة
         threads = []
         for platform_name, (domain, color_bg) in PLATFORMS.items():
-            t = Thread(target=search_platform, args=(identifier, platform_name, domain, color_bg))
-            t.start()
+            t = threading.Thread(target=fetch_and_print, args=(identifier, platform_name, domain, color_bg))
             threads.append(t)
+            t.start()
+            time.sleep(REQUEST_DELAY)  # قليل من التأخير لتجنب حظر DDG
 
         for t in threads:
-            t.join()  # انتظار كل الـ threads ينتهوا
+            t.join()
 
-        # سؤال إعادة البحث
-        again = input(Fore.MAGENTA + "\n[?] Do you want to search again? (yes/no): ").strip().lower()
+        # إعادة البحث
+        print(Fore.MAGENTA + "\n[?] Do you want to search again? (yes/no): " + Style.RESET_ALL, end='', flush=True)
+        again = input().strip().lower()
         if again not in ("yes", "y"):
-            print(Fore.GREEN + "\n[✔] Exiting OSINT tool. Bye 👋")
+            print(Fore.GREEN + "\n[✔] Exiting OSINT tool. Bye 👋", flush=True)
             break
+
 
 if __name__ == "__main__":
     main()
