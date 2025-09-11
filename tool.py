@@ -7,7 +7,7 @@ from ddgs import DDGS
 
 init(autoreset=True)
 
-API_URL = os.getenv("API_URL", "https://your-railway-app.up.railway.app/search")
+API_URL = os.getenv("API_URL", "https://osint-tool-production.up.railway.app/search")
 
 PLATFORMS = {
     "Facebook": ("facebook.com", Back.BLUE),
@@ -115,3 +115,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
