@@ -175,6 +175,8 @@ def search():
     try:
         data = request.get_json(silent=True) or {}
         identifier = (data.get("identifier", "") or "").strip()
+        print(f"🔍 Searching for: {identifier}", flush=True)
+        print(f"Found {len(results)} results total", flush=True)
         if not identifier:
             return jsonify([])
 
@@ -232,7 +234,6 @@ def search():
                             )
                         except Exception as e:
                             print("Cache insert error:", e)
-
                 time.sleep(REQUEST_DELAY)
 
             except Exception as e:
@@ -252,3 +253,4 @@ def search():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+
