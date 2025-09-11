@@ -25,6 +25,19 @@ CREATE TABLE IF NOT EXISTS users_log (
 )
 """)
 
+# المنصات
+PLATFORMS = [
+    "Facebook",
+    "Instagram",
+    "Youtube",
+    "TikTok",
+    "Snapchat",
+    "Reddit",
+    "Twitter",
+    "Pinterest",
+    "LinkedIn"
+]
+
 @app.route("/search", methods=["POST"])
 def search():
     data = request.json
@@ -32,14 +45,18 @@ def search():
     if not identifier:
         return jsonify([])
 
-    # تخزين البحث
+    # تخزين البحث في قاعدة البيانات
     client.execute(
         "INSERT INTO users_log (username, os, country, ip, search) VALUES (?, ?, ?, ?, ?)",
         ("server_user", "ServerOS", "Unknown", "0.0.0.0", identifier)
     )
 
-    # مثال للبيانات المرجعة
-    results = [{"platform": "Facebook", "link": f"https://facebook.com/{identifier}"}]
+    # إنشاء النتائج لكل المنصات
+    results = []
+    for platform_name in PLATFORMS:
+        url_platform = f"https://{platform_name.lower()}.com/{identifier}"
+        results.append({"platform": platform_name, "link": url_platform})
+
     return jsonify(results)
 
 if __name__ == "__main__":
