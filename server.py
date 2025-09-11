@@ -1,4 +1,3 @@
-
 # server.py
 from flask import Flask, request, jsonify
 from libsql_client import create_client_sync
@@ -13,7 +12,7 @@ import urllib.parse
 
 app = Flask(__name__)
 
-# ===== إعداد Turso =====
+# ===== إعداد Turso عبر Railway Variables =====
 DATABASE_URL = os.getenv("DATABASE_URL")
 AUTH_TOKEN = os.getenv("AUTH_TOKEN")
 
@@ -24,7 +23,7 @@ try:
 except Exception as e:
     print("⚠️ Turso init failed:", e)
 
-# إنشاء الجداول إذا أمكن
+# إنشاء الجداول
 if client:
     try:
         client.execute("""
@@ -68,7 +67,7 @@ PLATFORMS = {
 }
 
 # إعدادات الشبكة
-REQUEST_DELAY = float(os.getenv("REQUEST_DELAY", 1.5))  # تأخير افتراضي لتقليل البلوك
+REQUEST_DELAY = float(os.getenv("REQUEST_DELAY", 1.5))  # تأخير افتراضي
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", 2))
 
 # جلسة requests مع Header ثابت
@@ -84,13 +83,7 @@ session.headers.update(HEADERS)
 
 
 def duckduckgo_search_links(query, site=None, num_results=10):
-    """
-    نحاول جلب النتائج من DuckDuckGo HTML endpoint.
-    - نستخدم GET مع params
-    - نكرر محاولات (retries)
-    - parse عبر BeautifulSoup أو عبر regex كفالباك
-    - نعيد دائما قائمة (حتى لو فارغة)
-    """
+    """البحث في DuckDuckGo وإرجاع روابط نظيفة"""
     search_query = f"{query} site:{site}" if site else query
     url = "https://html.duckduckgo.com/html/"
     params = {"q": search_query}
@@ -102,25 +95,18 @@ def duckduckgo_search_links(query, site=None, num_results=10):
             resp = session.get(url, params=params, timeout=20)
             print(f"🔎 Searching: {search_query} | Status: {resp.status_code}")
 
-            # 200 => حاول تفكيك الـ DOM
             if resp.status_code == 200:
                 soup = BeautifulSoup(resp.text, "html.parser")
-
-                # أول محاولة: elements بعلامة result__a
                 anchors = soup.select("a.result__a")
-
-                # إذا لم نجد هذا الشكل، نأخذ كل <a>
                 if not anchors:
-                    anchors = soup.find_all('a')
+                    anchors = soup.find_all("a")
 
-                # حاول استخراج الرابط من href أو من داخل رابط مغلف (uddg=...)
                 for a in anchors:
                     link = None
-                    href = a.get('href')
+                    href = a.get("href")
                     if href:
-                        # بعض روابط duckduckgo تأتي على شكل /l/?kh=...&uddg=https%3A%2F%2F... => نفك التشفير
-                        if 'uddg=' in href:
-                            m = re.search(r'uddg=([^&]+)', href)
+                        if "uddg=" in href:
+                            m = re.search(r"uddg=([^&]+)", href)
                             if m:
                                 try:
                                     link = urllib.parse.unquote(m.group(1))
@@ -129,30 +115,28 @@ def duckduckgo_search_links(query, site=None, num_results=10):
                         else:
                             link = href
 
-                    # بعض الروابط محفوظة في attribute آخر
                     if not link:
-                        data_href = a.get('data-href') or a.get('data-redirect')
+                        data_href = a.get("data-href") or a.get("data-redirect")
                         if data_href:
                             link = data_href
 
-                    if link and link.startswith('http'):
-                        if 'duckduckgo.com' not in link and link not in links:
+                    if link and link.startswith("http"):
+                        if "duckduckgo.com" not in link and link not in links:
                             links.append(link)
                     if len(links) >= num_results:
                         break
 
-                # فالباك: استخراج عبر regex لو لم نجد نتائج كافية
+                # فالباك Regex
                 if not links:
                     found = re.findall(r'href="(https?://[^"]+)"', resp.text)
                     for link in found:
-                        if 'duckduckgo.com' not in link and link not in links:
+                        if "duckduckgo.com" not in link and link not in links:
                             links.append(link)
                         if len(links) >= num_results:
                             break
 
                 return links
 
-            # حالات قابلة لإعادة المحاولة
             elif resp.status_code in (429, 202):
                 wait = 2 ** attempt
                 print(f"⏳ Got {resp.status_code}, retrying after {wait}s (attempt {attempt + 1})")
@@ -175,12 +159,12 @@ def search():
     try:
         data = request.get_json(silent=True) or {}
         identifier = (data.get("identifier", "") or "").strip()
-        print(f"🔍 Searching for: {identifier}", flush=True)
-        print(f"Found {len(results)} results total", flush=True)
         if not identifier:
             return jsonify([])
 
-        # تخزين البحث (ليس سبب 500 إذا فشل)
+        print(f"🔍 Searching for: {identifier}", flush=True)
+
+        # سجل البحث
         if client:
             try:
                 client.execute(
@@ -194,7 +178,7 @@ def search():
 
         for platform_name, domain in PLATFORMS.items():
             try:
-                # محاولة أخذ النتائج من الكاش
+                # كاش
                 cached = []
                 if client:
                     try:
@@ -202,10 +186,9 @@ def search():
                             "SELECT link FROM search_cache WHERE query=? AND platform=?",
                             (identifier, platform_name)
                         )
-                        if hasattr(res, 'fetchall'):
+                        if hasattr(res, "fetchall"):
                             cached = res.fetchall()
                         else:
-                            # قد تكون قائمة مباشرة
                             cached = list(res)
                     except Exception as e:
                         print("Cache select error:", e)
@@ -213,17 +196,12 @@ def search():
 
                 if cached:
                     for row in cached:
-                        # row قد يكون tuple أو سطر واحد
                         link = row[0] if isinstance(row, (list, tuple)) else row
                         results.append({"platform": platform_name, "link": link})
                     continue
 
                 # بحث جديد
                 links = duckduckgo_search_links(identifier, domain, num_results=10)
-
-                if not links:
-                    print(f"⚠️ No links found for {platform_name} ({domain})")
-
                 for link in links:
                     results.append({"platform": platform_name, "link": link})
                     if client:
@@ -239,18 +217,16 @@ def search():
             except Exception as e:
                 print(f"Unhandled error searching {platform_name}:", e)
                 traceback.print_exc()
-                # لا نكسر السيرفر، نكمل المنصات الأخرى
                 continue
 
+        print(f"✅ Found {len(results)} results for '{identifier}'", flush=True)
         return jsonify(results)
 
     except Exception as e:
         print("❌ Fatal error in /search:", e)
         traceback.print_exc()
-        # نعيد 200 مع لائحة فارغة بدل 500 لكي لا تكسر أدوات العميل
         return jsonify([])
 
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
-
