@@ -1,7 +1,9 @@
 from flask import Flask, request, jsonify
 from libsql_client import create_client_sync
 from migrate import migrate
+from ddgs import DDGS
 import os
+import time
 
 app = Flask(__name__)
 
@@ -25,18 +27,35 @@ CREATE TABLE IF NOT EXISTS users_log (
 )
 """)
 
-# المنصات
-PLATFORMS = [
-    "Facebook",
-    "Instagram",
-    "Youtube",
-    "TikTok",
-    "Snapchat",
-    "Reddit",
-    "Twitter",
-    "Pinterest",
-    "LinkedIn"
-]
+# ===== المنصات =====
+PLATFORMS = {
+    "Facebook": "facebook.com",
+    "Instagram": "instagram.com",
+    "Youtube": "youtube.com",
+    "TikTok": "tiktok.com",
+    "Snapchat": "snapchat.com",
+    "Reddit": "reddit.com",
+    "Twitter": "twitter.com",
+    "Pinterest": "pinterest.com",
+    "LinkedIn": "linkedin.com",
+}
+
+REQUEST_DELAY = 0.3
+ddgs = DDGS()
+
+def duckduckgo_search_links(query, site=None, num_results=10):
+    search_query = f"{query} site:{site}" if site else query
+    links = []
+    try:
+        results = ddgs.text(search_query, max_results=num_results)
+        for r in results:
+            if "href" in r and r["href"]:
+                links.append(r["href"])
+            if len(links) >= num_results:
+                break
+    except Exception as e:
+        print(f"⚠️ Error searching {site}: {e}")
+    return links
 
 @app.route("/search", methods=["POST"])
 def search():
@@ -45,17 +64,18 @@ def search():
     if not identifier:
         return jsonify([])
 
-    # تخزين البحث في قاعدة البيانات
+    # تخزين البحث
     client.execute(
         "INSERT INTO users_log (username, os, country, ip, search) VALUES (?, ?, ?, ?, ?)",
         ("server_user", "ServerOS", "Unknown", "0.0.0.0", identifier)
     )
 
-    # إنشاء النتائج لكل المنصات
     results = []
-    for platform_name in PLATFORMS:
-        url_platform = f"https://{platform_name.lower()}.com/{identifier}"
-        results.append({"platform": platform_name, "link": url_platform})
+    for platform_name, domain in PLATFORMS.items():
+        links = duckduckgo_search_links(identifier, domain)
+        for link in links:
+            results.append({"platform": platform_name, "link": link})
+        time.sleep(REQUEST_DELAY)
 
     return jsonify(results)
 
