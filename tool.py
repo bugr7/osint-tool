@@ -4,7 +4,7 @@ import time
 import threading
 from colorama import Fore, Back, init, Style
 import requests
-from ddgs import DDGS
+import re
 
 init(autoreset=True)
 
@@ -23,21 +23,28 @@ PLATFORMS = {
 }
 
 REQUEST_DELAY = 0.3
-ddgs = DDGS()
 
 
 def duckduckgo_search_links(query, site=None, num_results=10):
     search_query = f"{query} site:{site}" if site else query
+    url = f"https://html.duckduckgo.com/html/?q={search_query}"
+    headers = {"User-Agent": "Mozilla/5.0"}
     links = []
+
     try:
-        results = ddgs.text(search_query, max_results=num_results)
-        for r in results:
-            if "href" in r and r["href"]:
-                links.append(r["href"])
-            if len(links) >= num_results:
-                break
+        resp = requests.get(url, headers=headers, timeout=15)
+        if resp.status_code == 200:
+            found = re.findall(r'href="(https?://[^"]+)"', resp.text)
+            for link in found:
+                if "duckduckgo.com" not in link and link not in links:
+                    links.append(link)
+                if len(links) >= num_results:
+                    break
+        else:
+            print(Fore.RED + f"[!] DuckDuckGo returned {resp.status_code}", flush=True)
     except Exception as e:
         print(Fore.RED + f"⚠️ Error searching {site}: {e}", flush=True)
+
     return links
 
 
@@ -98,8 +105,7 @@ def main():
                         |  $$$$$$/                        
                          \______/                         
     """
-    print(Fore.GREEN + ascii_art + Fore.RED + "OSINT Tool - DDGS Multithreaded v0.4" + Fore.GREEN + "\n", flush=True)
-
+    print(Fore.GREEN + ascii_art + Fore.RED + "OSINT Tool - DuckDuckGo Multithreaded v0.4" + Fore.GREEN + "\n", flush=True)
 
     print(Fore.WHITE + "🔎 Platforms covered: Facebook, Instagram, Youtube, TikTok, Snapchat, Reddit, Twitter, Pinterest, LinkedIn\n", flush=True)
 
@@ -147,4 +153,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
