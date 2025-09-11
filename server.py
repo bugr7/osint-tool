@@ -28,6 +28,16 @@ CREATE TABLE IF NOT EXISTS users_log (
 )
 """)
 
+client.execute("""
+CREATE TABLE IF NOT EXISTS search_cache (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    query TEXT,
+    platform TEXT,
+    link TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
 # ===== المنصات =====
 PLATFORMS = {
     "Facebook": "facebook.com",
@@ -41,17 +51,20 @@ PLATFORMS = {
     "LinkedIn": "linkedin.com",
 }
 
-REQUEST_DELAY = 1.0
+REQUEST_DELAY = 1.5  # زدت delay باش نتفادى البلوك
+MAX_RETRIES = 2
+
+session = requests.Session()
 
 
-def duckduckgo_search_links(query, site=None, num_results=10):
+def duckduckgo_search_links(query, site=None, num_results=10, retries=0):
     search_query = f"{query} site:{site}" if site else query
     url = "https://html.duckduckgo.com/html/"
     params = {"q": search_query}
 
     links = []
     try:
-        resp = requests.post(url, data=params, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
+        resp = session.post(url, data=params, headers={"User-Agent": "Mozilla/5.0"})
         if resp.status_code == 200:
             soup = BeautifulSoup(resp.text, "html.parser")
             for a in soup.select("a.result__a"):
@@ -63,13 +76,19 @@ def duckduckgo_search_links(query, site=None, num_results=10):
     except Exception as e:
         print(f"⚠️ Error searching {site}: {e}")
 
+    # retry لو رجع فارغ
+    if not links and retries < MAX_RETRIES:
+        print(f"⚠️ Retry {retries+1} for {site}...")
+        time.sleep(2)
+        return duckduckgo_search_links(query, site, num_results, retries+1)
+
     return links
 
 
 @app.route("/search", methods=["POST"])
 def search():
     data = request.json
-    identifier = data.get("identifier", "")
+    identifier = data.get("identifier", "").strip()
     if not identifier:
         return jsonify([])
 
@@ -80,10 +99,27 @@ def search():
     )
 
     results = []
+
     for platform_name, domain in PLATFORMS.items():
+        # شوف الكاش أولا
+        cached = client.execute(
+            "SELECT link FROM search_cache WHERE query=? AND platform=?",
+            (identifier, platform_name)
+        ).fetchall()
+
+        if cached:
+            for row in cached:
+                results.append({"platform": platform_name, "link": row[0]})
+            continue
+
+        # بحث جديد
         links = duckduckgo_search_links(identifier, domain)
         for link in links:
             results.append({"platform": platform_name, "link": link})
+            client.execute(
+                "INSERT INTO search_cache (query, platform, link) VALUES (?, ?, ?)",
+                (identifier, platform_name, link)
+            )
         time.sleep(REQUEST_DELAY)
 
     return jsonify(results)
