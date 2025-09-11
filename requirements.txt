@@ -1,0 +1,6 @@
+flask
+requests
+python-dotenv
+colorama
+ddgs
+libsql-client
