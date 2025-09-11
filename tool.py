@@ -1,3 +1,4 @@
+# tool.py
 import os
 import platform
 import time
@@ -67,7 +68,7 @@ def ask_yes_no(question, color=Fore.YELLOW):
 def main():
     ascii_art = r"""
  /$$$$$$$                                   /$$$$$$$$
-| $$__  $$                                 |_____ $$/ 
+| $$__  $$                                 |_____ $$/
 | $$  \ $$ /$$   /$$  /$$$$$$         /$$$$$$   /$$/  
 | $$$$$$$ | $$  | $$ /$$__  $$       /$$__  $$ /$$/   
 | $$__  $$| $$  | $$| $$  \ $$      | $$  \__//$$/    
@@ -91,9 +92,6 @@ def main():
 
     username = platform.node()
     os_name = platform.system() + " " + platform.release()
-
-    # (يمكن طباعة أو استعمال هذه المتغيرات إذا احتجت)
-    # print(Fore.YELLOW + f"Local node: {username} | OS: {os_name} | IP: {ip} | Country: {country}")
 
     while True:
         identifier = input(Fore.CYAN + "[?] Enter username or firstname and lastname: " + Style.RESET_ALL).strip()
