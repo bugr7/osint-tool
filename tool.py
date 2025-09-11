@@ -73,6 +73,17 @@ def fetch_and_print(identifier, platform_name, domain, color_bg):
     print_platform_frame(platform_name, links, color_bg)
 
 
+def ask_yes_no(question, color=Fore.YELLOW):
+    while True:
+        answer = input(color + question + " (yes/no): " + Style.RESET_ALL).strip().lower()
+        if answer in ("yes", "y"):
+            return True
+        elif answer in ("no", "n"):
+            return False
+        else:
+            print(Fore.RED + "[!] Invalid input. Please answer 'yes' or 'no'.")
+
+
 def main():
     print(Fore.GREEN + """
  /$$$$$$$                                   /$$$$$$$$
@@ -86,7 +97,7 @@ def main():
                      /$$  \ $$                        
                     |  $$$$$$/                        
                      \______/                         
-""" + Fore.RED + "OSINT Tool - DDGS Multithreaded v0.3" + Fore.GREEN + "\n", flush=True)
+""" + Fore.RED + "OSINT Tool - DDGS Multithreaded v0.4" + Fore.GREEN + "\n", flush=True)
 
     print(Fore.WHITE + "🔎 Platforms covered: Facebook, Instagram, Youtube, TikTok, Snapchat, Reddit, Twitter, Pinterest, LinkedIn\n", flush=True)
 
@@ -101,10 +112,14 @@ def main():
     os_name = platform.system() + " " + platform.release()
 
     while True:
-        print(Fore.CYAN + "[?] Enter username or firstname and lastname: " + Style.RESET_ALL, end='', flush=True)
-        identifier = input().strip()
+        identifier = input(Fore.CYAN + "[?] Enter username or firstname and lastname: " + Style.RESET_ALL).strip()
         if not identifier:
             print(Fore.RED + "[!] No input provided.", flush=True)
+            continue
+
+        # سؤال permission قبل البحث
+        if not ask_yes_no("[?] Do you have permission to search this account?"):
+            print(Fore.RED + "[!] Permission not confirmed. Exiting.", flush=True)
             continue
 
         # جلب البيانات عبر API
@@ -117,15 +132,13 @@ def main():
             t = threading.Thread(target=fetch_and_print, args=(identifier, platform_name, domain, color_bg))
             threads.append(t)
             t.start()
-            time.sleep(REQUEST_DELAY)  # قليل من التأخير لتجنب حظر DDG
+            time.sleep(REQUEST_DELAY)
 
         for t in threads:
             t.join()
 
         # إعادة البحث
-        print(Fore.MAGENTA + "\n[?] Do you want to search again? (yes/no): " + Style.RESET_ALL, end='', flush=True)
-        again = input().strip().lower()
-        if again not in ("yes", "y"):
+        if not ask_yes_no("\n[?] Do you want to search again?"):
             print(Fore.GREEN + "\n[✔] Exiting OSINT tool. Bye 👋", flush=True)
             break
 
