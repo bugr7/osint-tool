@@ -1,22 +1,17 @@
-# tool.py
 """
-OSINT local search tool (DuckDuckGo primary + Bing fallback)
-- Skips DDG 202 spam: if DDG returns 202 → fallback directly to Bing.
-- Filters links strictly by platform domain.
-- Logs minimal user info to SERVER_URL (no search results).
-- Works with Python 3.12, uses requests + beautifulsoup4.
+OSINT local search tool (Yahoo primary + Yandex fallback)
+- Filters strictly by platform domain.
+- Simple, clean, Python 3.12 compatible.
 """
 
 import os
-import time
-import random
-import platform
 import requests
 import urllib.parse
 from bs4 import BeautifulSoup
+import random
+import time
 
 # ====== CONFIG ======
-SERVER_URL = os.getenv("SERVER_URL", "https://osint-tool-production.up.railway.app/log_search")
 PLATFORMS = {
     "Facebook": "facebook.com",
     "Instagram": "instagram.com",
@@ -29,126 +24,103 @@ PLATFORMS = {
     "LinkedIn": "linkedin.com",
 }
 MAX_RESULTS = 10
-DUCK_URL = "https://html.duckduckgo.com/html/"
-BING_URL = "https://www.bing.com/search"
-REQUEST_TIMEOUT = 25
-REQUEST_DELAY_BETWEEN_PLATFORMS = 1.2
+REQUEST_TIMEOUT = 20
+REQUEST_DELAY_BETWEEN_PLATFORMS = 1.0
 
+# User-Agents rotation
 USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Safari/605.1.15",
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
-    "Mozilla/5.0 (Linux; Android 13; SM-G990B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6) Safari/605.1.15",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Safari/605.1.15",
+    "Mozilla/5.0 (Linux; Android 13; SM-G990B) Chrome/120.0.0.0 Mobile Safari/537.36",
 ]
 
-IGNORE_EXTS = (
-    ".css", ".js", ".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp",
-    ".woff", ".woff2", ".ttf", ".ico", ".map", ".mp4", ".webm", ".otf"
-)
+IGNORE_EXTS = (".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".svg",
+               ".ico", ".woff", ".woff2", ".ttf", ".map", ".mp4", ".webm", ".otf")
 
 session = requests.Session()
 
 # -------- Helpers --------
 def random_headers():
-    return {
-        "User-Agent": random.choice(USER_AGENTS),
-        "Accept-Language": "en-US,en;q=0.9"
-    }
+    return {"User-Agent": random.choice(USER_AGENTS)}
 
-def is_valid_link_for_domain(link: str, domain: str) -> bool:
+def is_valid_link(link: str, domain: str) -> bool:
     if not link or not link.startswith(("http://", "https://")):
         return False
     lower = link.lower()
-    if any(lower.endswith(ext) or ext in urllib.parse.urlparse(lower).path for ext in IGNORE_EXTS):
-        return False
-    if "r.bing.com" in lower or "bing.com/clk?" in lower:
+    if any(lower.endswith(ext) for ext in IGNORE_EXTS):
         return False
     try:
         netloc = urllib.parse.urlparse(link).netloc.lower()
         if ":" in netloc:
             netloc = netloc.split(":")[0]
         return netloc == domain or netloc.endswith("." + domain)
-    except Exception:
+    except:
         return False
 
 def filter_links(links, domain):
     out = []
     for l in links:
-        if is_valid_link_for_domain(l, domain) and l not in out:
+        if is_valid_link(l, domain) and l not in out:
             out.append(l)
         if len(out) >= MAX_RESULTS:
             break
     return out
 
-# -------- DuckDuckGo search --------
-def search_duckduckgo(query: str, site: str = None, max_results=MAX_RESULTS):
-    q = f"{query} site:{site}" if site else query
-    params = {"q": q}
+# -------- Search Engines --------
+def search_yahoo(query: str, site: str):
     try:
-        r = session.post(DUCK_URL, headers=random_headers(), data=params, timeout=REQUEST_TIMEOUT)
-        if r.status_code == 202:
-            # مباشرة fallback بلا Spam
-            return []
+        q = f"{query} site:{site}"
+        url = f"https://search.yahoo.com/search?p={urllib.parse.quote(q)}"
+        r = session.get(url, headers=random_headers(), timeout=REQUEST_TIMEOUT)
         if r.status_code != 200:
             return []
         soup = BeautifulSoup(r.text, "html.parser")
-        collected = []
-        for a in soup.select("a.result__a"):
-            href = a.get("href")
-            if href and href.startswith("http"):
-                collected.append(href)
-        return collected[:max_results]
+        links = [a["href"] for a in soup.select("h3.title a") if a.get("href")]
+        return filter_links(links, site)
     except:
         return []
 
-# -------- Bing search --------
-def search_bing(query: str, site: str = None, max_results=MAX_RESULTS):
-    q = f"{query} site:{site}" if site else query
-    params = {"q": q}
+def search_yandex(query: str, site: str):
     try:
-        r = session.get(BING_URL, headers=random_headers(), params=params, timeout=REQUEST_TIMEOUT)
+        q = f"{query} site:{site}"
+        url = f"https://yandex.com/search/?text={urllib.parse.quote(q)}"
+        r = session.get(url, headers=random_headers(), timeout=REQUEST_TIMEOUT)
         if r.status_code != 200:
             return []
         soup = BeautifulSoup(r.text, "html.parser")
-        collected = []
-        for a in soup.select("li.b_algo h2 a"):
-            href = a.get("href")
-            if href and href.startswith("http"):
-                collected.append(href)
-        return collected[:max_results]
+        links = [a["href"] for a in soup.select("a.Link.Link_theme_normal") if a.get("href")]
+        return filter_links(links, site)
     except:
         return []
 
-# -------- Main search --------
-def search_username(username: str):
-    results = {}
-    payload = {
-        "username": username,
-        "system": platform.system(),
-        "release": platform.release(),
-    }
-    try:
-        session.post(SERVER_URL, json=payload, timeout=5)
-    except:
-        pass
+def smart_search(query: str, site: str):
+    results = search_yahoo(query, site)
+    if results:
+        return "Yahoo", results
+    results = search_yandex(query, site)
+    if results:
+        return "Yandex", results
+    return None, []
 
-    for platform_name, domain in PLATFORMS.items():
-        print(f"🔍 Searching {platform_name}...")
-        links = search_duckduckgo(username, site=domain)
-        if not links:  # fallback مباشرة إذا فشل DDG أو رجع 202
-            print(f"⚠️ No results from DuckDuckGo, using Bing fallback...")
-            links = search_bing(username, site=domain)
-        filtered = filter_links(links, domain)
-        results[platform_name] = filtered
-        print(f"✅ {platform_name}: {len(filtered)}/{MAX_RESULTS}")
-        for l in filtered:
-            print("   ", l)
+# -------- Main --------
+def main():
+    name = input("[?] Enter username or first/last name: ").strip()
+    if not name:
+        print("❌ No input provided.")
+        return
+
+    for platform, domain in PLATFORMS.items():
+        print(f"🔍 Searching {platform}...")
+        engine, links = smart_search(name, domain)
+        if engine:
+            print(f"✅ {platform} ({engine}): {len(links)}/{MAX_RESULTS}")
+            for l in links:
+                print("   ", l)
+        else:
+            print(f"❌ {platform}: no results.")
         time.sleep(REQUEST_DELAY_BETWEEN_PLATFORMS)
-    return results
 
-# Run standalone
 if __name__ == "__main__":
-    user = input("[?] Enter username or first/last name: ").strip()
-    if user:
-        search_username(user)
+    main()
