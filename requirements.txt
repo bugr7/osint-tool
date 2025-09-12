@@ -1,6 +1,6 @@
-flask
-requests
-beautifulsoup4
-colorama
-libsql-client
-migrate
+Flask>=2.3.2
+requests>=2.31.0
+beautifulsoup4>=4.12.2
+colorama>=0.4.6
+libsql-client>=0.2.0
+migrate>=0.1.2
