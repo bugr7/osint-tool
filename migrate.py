@@ -2,7 +2,7 @@
 def migrate(client):
     """
     يتأكد من وجود الأعمدة المطلوبة في جدول users_log.
-    إذا ماكانوش موجودين يضيفهم.
+    إذا لم تكن موجودة يضيفها.
     """
     required_columns = ["username", "os", "country", "ip", "search", "created_at"]
 
