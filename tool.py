@@ -77,9 +77,29 @@ def search_yahoo(query: str, site: str):
         if r.status_code != 200:
             return []
         soup = BeautifulSoup(r.text, "html.parser")
-        links = [a["href"] for a in soup.select("h3.title a") if a.get("href")]
-        return filter_links(links, site)
-    except:
+        links = []
+
+        # تجربة عدة selectors لياهو
+        # أولاً: العناصر العادية التي تمثل النتائج
+        # غالباً تلاقيها داخل <div class="Sr"> <a href="...">
+        for a in soup.select("div.Sr a"):
+            href = a.get("href")
+            if href and href.startswith("http"):
+                links.append(href)
+
+        # إذا ما لقيتش نتيجة، نجرب selector آخر
+        if not links:
+            for a in soup.select("h3.title a"):
+                href = a.get("href")
+                if href and href.startswith("http"):
+                    links.append(href)
+
+        # فلترة حسب الدومين
+        filtered = filter_links(links, site)
+        return filtered
+
+    except Exception as e:
+        print(f"⚠️ Yahoo error: {e}")
         return []
 
 def search_yandex(query: str, site: str):
@@ -124,3 +144,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
