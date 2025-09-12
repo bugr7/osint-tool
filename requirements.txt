@@ -1,7 +1,5 @@
 Flask
 requests
 beautifulsoup4
+ddg3
 libsql-client
-migrate
-
-
