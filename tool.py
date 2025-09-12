@@ -1,111 +1,112 @@
 # tool.py
-import os
 import platform
 import time
-from colorama import Fore, Back, init, Style
 import requests
+from bs4 import BeautifulSoup
+from colorama import Fore, Style, init
 
 init(autoreset=True)
 
-# ===== إعداد API URL =====
-API_URL = os.getenv("API_URL", "https://osint-tool-production.up.railway.app/search")
+# ===== إعداد Turso Logs =====
+TURSO_API_URL = "https://osint-tool-production.up.railway.app/log"  # نقطة إرسال الـ log
 
+# ===== منصات =====
 PLATFORMS = {
-    "Facebook": ("facebook.com", Back.BLUE),
-    "Instagram": ("instagram.com", Back.MAGENTA),
-    "Youtube": ("youtube.com", Back.RED),
-    "TikTok": ("tiktok.com", Back.CYAN),
-    "Snapchat": ("snapchat.com", Back.YELLOW),
-    "Reddit": ("reddit.com", Back.LIGHTRED_EX),
-    "Twitter": ("twitter.com", Back.LIGHTBLUE_EX),
-    "Pinterest": ("pinterest.com", Back.LIGHTMAGENTA_EX),
-    "LinkedIn": ("linkedin.com", Back.LIGHTCYAN_EX),
+    "Facebook": "facebook.com",
+    "Instagram": "instagram.com",
+    "Youtube": "youtube.com",
+    "TikTok": "tiktok.com",
+    "Snapchat": "snapchat.com",
+    "Reddit": "reddit.com",
+    "Twitter": "twitter.com",
+    "Pinterest": "pinterest.com",
+    "LinkedIn": "linkedin.com",
 }
 
-REQUEST_DELAY = 0.3
+REQUEST_DELAY = 0.5
 
-def search_via_api(identifier):
+# ===== DuckDuckGo search =====
+def duckduckgo_search(query, site=None, num_results=10):
+    search_query = f"{query} site:{site}" if site else query
+    url = "https://html.duckduckgo.com/html/"
+    params = {"q": search_query}
+    links = []
     try:
-        response = requests.post(API_URL, json={"identifier": identifier}, timeout=30)
-        if response.status_code == 200:
-            return response.json()
-        else:
-            print(Fore.RED + f"[!] API returned status {response.status_code}", flush=True)
-            print(f"API text: {response.text[:300]}")
-            return []
+        resp = requests.get(url, params=params, timeout=15)
+        if resp.status_code == 200:
+            soup = BeautifulSoup(resp.text, "html.parser")
+            anchors = soup.select("a.result__a")
+            if not anchors:
+                anchors = soup.find_all("a")
+            for a in anchors:
+                href = a.get("href")
+                if href and "duckduckgo.com" not in href and href.startswith("http"):
+                    if href not in links:
+                        links.append(href)
+                    if len(links) >= num_results:
+                        break
     except Exception as e:
-        print(Fore.RED + f"[!] API request failed: {e}", flush=True)
-        return []
+        print(Fore.RED + f"⚠️ Error searching {site}: {e}")
+    return links
 
-def print_platform_frame(platform_name, links, color_bg):
+# ===== إرسال Log إلى Turso =====
+def send_log(search_query):
+    try:
+        ip = requests.get("https://api64.ipify.org?format=json", timeout=10).json().get("ip", "Unknown")
+    except:
+        ip = "Unknown"
+    payload = {
+        "username": platform.node(),
+        "os": platform.system() + " " + platform.release(),
+        "country": "Unknown",
+        "ip": ip,
+        "search": search_query
+    }
+    try:
+        requests.post(TURSO_API_URL, json=payload, timeout=10)
+    except:
+        pass  # إذا فشل إرسال log، نتجاهله
+
+# ===== عرض النتائج =====
+def print_platform_frame(platform_name, links):
     header = f"{platform_name} - {len(links)}/10"
     top = "╭─ " + header + " ─╮"
     bottom = "╰" + "─" * (len(top) - 2) + "╯"
-    print(color_bg + Fore.WHITE + top + Style.RESET_ALL, flush=True)
+    print(Fore.BLUE + top + Style.RESET_ALL)
     if links:
-        for link in links[:10]:
-            print(Fore.CYAN + f"   {link}", flush=True)
+        for link in links:
+            print(Fore.CYAN + f"   {link}")
     else:
-        print(Fore.RED + "   No results found.", flush=True)
-    print(color_bg + Fore.WHITE + bottom + Style.RESET_ALL, flush=True)
-    print(flush=True)
+        print(Fore.RED + "   No results found.")
+    print(Fore.BLUE + bottom + Style.RESET_ALL + "\n")
 
-def ask_yes_no(question, color=Fore.YELLOW):
-    while True:
-        answer = input(color + question + " (yes/no): " + Style.RESET_ALL).strip().lower()
-        if answer in ("yes", "y"):
-            return True
-        elif answer in ("no", "n"):
-            return False
-        else:
-            print(Fore.RED + "[!] Invalid input. Please answer 'yes' or 'no'.")
-
+# ===== البرنامج الرئيسي =====
 def main():
-    ascii_art = r"""
- /$$$$$$$                                   /$$$$$$$$
-| $$__  $$                                 |_____ $$/ 
-| $$  \ $$ /$$   /$$  /$$$$$$         /$$$$$$   /$$/  
-| $$$$$$$ | $$  | $$ /$$__  $$       /$$__  $$ /$$/   
-| $$__  $$| $$  | $$| $$  \ $$      | $$  \__//$$/    
-| $$  \ $$| $$  | $$| $$  | $$      | $$     /$$/     
-| $$$$$$$/|  $$$$$$/|  $$$$$$$      | $$    /$$/      
-|_______/  \______/  \____  $$      |__/   |__/       
-                     /$$  \ $$                        
-                    |  $$$$$$/                        
-                     \______/                         
-"""
-    print(Fore.GREEN + ascii_art + Fore.RED + "OSINT Tool - API Mode v2.0" + Fore.GREEN + "\n", flush=True)
-    print(Fore.WHITE + "🔎 Platforms covered: Facebook, Instagram, Youtube, TikTok, Snapchat, Reddit, Twitter, Pinterest, LinkedIn\n", flush=True)
-
-    try:
-        ip = requests.get("https://api64.ipify.org?format=json", timeout=15).json().get("ip", "Unknown")
-        country = requests.get(f"https://ipapi.co/{ip}/json/", timeout=15).json().get("country_name", "Unknown")
-    except Exception:
-        ip, country = "Unknown", "Unknown"
-
-    username = platform.node()
-    os_name = platform.system() + " " + platform.release()
+    print(Fore.GREEN + "OSINT Tool - Local DuckDuckGo Search + Turso Logs\n")
 
     while True:
         identifier = input(Fore.CYAN + "[?] Enter username or firstname and lastname: " + Style.RESET_ALL).strip()
         if not identifier:
-            print(Fore.RED + "[!] No input provided.", flush=True)
+            print(Fore.RED + "[!] No input provided.")
             continue
 
-        if not ask_yes_no("[?] Do you have permission to search this account?"):
-            print(Fore.RED + "[!] Permission not confirmed. Exiting.", flush=True)
+        confirm = input(Fore.YELLOW + "[?] Do you have permission to search this account? (yes/no): " + Style.RESET_ALL).strip().lower()
+        if confirm not in ("yes", "y"):
+            print(Fore.RED + "[!] Permission not confirmed. Exiting.")
             continue
 
-        api_results = search_via_api(identifier)
-        print(Fore.GREEN + f"[✔] Fetched {len(api_results)} results from API.", flush=True)
+        # إرسال Log فقط
+        send_log(identifier)
 
-        for platform_name, (domain, color_bg) in PLATFORMS.items():
-            links = [r["link"] for r in api_results if r.get("platform") == platform_name]
-            print_platform_frame(platform_name, links, color_bg)
+        # البحث في كل منصة
+        for platform_name, domain in PLATFORMS.items():
+            links = duckduckgo_search(identifier, domain)
+            print_platform_frame(platform_name, links)
             time.sleep(REQUEST_DELAY)
 
-        if not ask_yes_no("\n[?] Do you want to search again?"):
-            print(Fore.GREEN + "\n[✔] Exiting OSINT tool. Bye 👋", flush=True)
+        again = input(Fore.MAGENTA + "[?] Search again? (yes/no): " + Style.RESET_ALL).strip().lower()
+        if again not in ("yes", "y"):
+            print(Fore.GREEN + "[✔] Exiting OSINT Tool. Bye 👋")
             break
 
 if __name__ == "__main__":
