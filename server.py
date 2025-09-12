@@ -9,25 +9,25 @@ from bs4 import BeautifulSoup
 import traceback
 import re
 import urllib.parse
-from urllib.parse import urlparse, unquote
+import random
 
 app = Flask(__name__)
 
-# ===== إعداد Turso =====
+# ===== إعداد Turso (من المتغيرات البيئية) =====
 DATABASE_URL = os.getenv("DATABASE_URL")
 AUTH_TOKEN = os.getenv("AUTH_TOKEN")
 
 client = None
-if DATABASE_URL and AUTH_TOKEN:
-    try:
+try:
+    if DATABASE_URL and AUTH_TOKEN:
         client = create_client_sync(url=DATABASE_URL, auth_token=AUTH_TOKEN)
         migrate(client)
-    except Exception as e:
-        print("⚠️ Turso init failed:", e)
-else:
-    print("⚠️ DATABASE_URL or AUTH_TOKEN not set — DB disabled (set them in Railway env).")
+    else:
+        print("⚠️ DATABASE_URL or AUTH_TOKEN not set. DB disabled.")
+except Exception as e:
+    print("⚠️ Turso init failed:", e)
 
-# إنشاء الجداول إذا أمكن
+# إنشـاء الجداول لو أمكن
 if client:
     try:
         client.execute("""
@@ -57,6 +57,7 @@ if client:
     except Exception as e:
         print("Error creating search_cache:", e)
 
+
 # ===== المنصات =====
 PLATFORMS = {
     "Facebook": "facebook.com",
@@ -70,110 +71,167 @@ PLATFORMS = {
     "LinkedIn": "linkedin.com",
 }
 
-# إعدادات الشبكة
-REQUEST_DELAY = float(os.getenv("REQUEST_DELAY", 1.0))  # أقل قليلاً لأن الآن نطلب مرة واحدة
+# إعدادات الشبكة / السلوك
+REQUEST_DELAY = float(os.getenv("REQUEST_DELAY", 1.2))  # تأخير افتراضي لتقليل الحظر
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", 2))
+DESIRED_PER_PLATFORM = int(os.getenv("DESIRED_PER_PLATFORM", 10))
 
 # جلسة requests مع Header ثابت
 session = requests.Session()
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    )
-}
-session.headers.update(HEADERS)
+HEADERS_POOL = [
+    # مجموعة User-Agents (يمكن إضافة المزيد)
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
+]
+session.headers.update({"User-Agent": random.choice(HEADERS_POOL)})
 
 
-def duckduckgo_search_all(query, max_links=200):
+def generate_permutations(name):
     """
-    نفّذ طلب واحد إلى DuckDuckGo HTML endpoint، واخرج قائمة روابط منظمة.
-    نستخدم retries بسيط (exponential backoff) لحالات 429/202.
+    توليد صيغ متعددة من الاسم لزيادة الاحتمالات:
+    - الاسم كما هو
+    - بدون مسافات
+    - بنقطة/شرطة/underscore
+    - firstlast و lastfirst
+    - إضافة احتمالات مع حذف أحرف متوسطة
     """
-    url = "https://html.duckduckgo.com/html/"
-    params = {"q": query}
+    name = name.strip()
+    parts = [p for p in name.split() if p]
+    perms = []
+    # الأصلية
+    perms.append(name)
+    # بدون مسافات
+    perms.append("".join(parts))
+    # نقط و underscores و شرطات
+    if len(parts) >= 2:
+        perms.append(".".join(parts))
+        perms.append("_".join(parts))
+        perms.append("-".join(parts))
+        perms.append(parts[0] + parts[-1])
+        perms.append(parts[-1] + parts[0])
+    # كل جزء لوحده
+    for p in parts:
+        perms.append(p)
+    # إضافات: lowercase
+    perms = list(dict.fromkeys([p.lower() for p in perms if p]))  # إزالة المكررات والمحافظة على الترتيب
+    return perms
+
+
+def extract_links_from_html(resp_text, max_results):
     links = []
-    seen = set()
-
-    for attempt in range(MAX_RETRIES + 1):
-        try:
-            resp = session.get(url, params=params, timeout=20)
-            print(f"🔎 DuckDuckGo query: '{query[:60]}' | status={resp.status_code}")
-            if resp.status_code == 200:
-                soup = BeautifulSoup(resp.text, "html.parser")
-                anchors = soup.select("a.result__a")
-                if not anchors:
-                    anchors = soup.find_all("a")
-
-                for a in anchors:
-                    href = a.get("href") or ""
-                    link = None
-                    if "uddg=" in href:
-                        m = re.search(r'uddg=([^&]+)', href)
-                        if m:
-                            try:
-                                link = unquote(m.group(1))
-                            except Exception:
-                                link = None
-                    else:
-                        # بعض الأحيان href هو مسار كامل أو رابط مباشر
-                        if href.startswith("/l/") or href.startswith("/r/"):
-                            # حاول استخراج uddg داخل href
-                            m = re.search(r'uddg=([^&]+)', href)
-                            if m:
-                                try:
-                                    link = unquote(m.group(1))
-                                except Exception:
-                                    link = None
-                        elif href.startswith("http"):
-                            link = href
-
-                    # fallback: بعض الروابط مدفونة داخل attributes أخرى
-                    if not link:
-                        data_href = a.get("data-href") or a.get("data-redirect")
-                        if data_href:
-                            link = data_href
-
-                    if link:
-                        # تأكد من عدم احتواء رابط DuckDuckGo نفسه
-                        if "duckduckgo.com" in link:
-                            continue
-                        # normalize
-                        link = link.strip()
-                        if link not in seen:
-                            seen.add(link)
-                            links.append(link)
-                        if len(links) >= max_links:
-                            break
-
-                # فالباك بسيط عبر regex لو لم نعثر على شيء كافٍ
-                if not links:
-                    found = re.findall(r'href="(https?://[^"]+)"', resp.text)
-                    for link in found:
-                        if 'duckduckgo.com' not in link and link not in seen:
-                            seen.add(link)
-                            links.append(link)
-                        if len(links) >= max_links:
-                            break
-
-                return links
-
-            elif resp.status_code in (429, 202):
-                wait = 2 ** attempt
-                print(f"⏳ DuckDuckGo returned {resp.status_code}, retrying after {wait}s (attempt {attempt + 1})")
-                time.sleep(wait)
-                continue
-            else:
-                print("❌ DuckDuckGo returned status:", resp.status_code)
-                break
-
-        except Exception as e:
-            print("⚠️ Error fetching DuckDuckGo:", e)
-            traceback.print_exc()
-            time.sleep(1)
-
+    # باك أب عبر regex
+    found = re.findall(r'href=["\'](https?://[^"\' >]+)', resp_text)
+    for l in found:
+        if 'duckduckgo.com' not in l and l not in links:
+            links.append(l)
+        if len(links) >= max_results:
+            break
     return links
+
+
+def duckduckgo_search_links(query, site=None, num_results=10):
+    """
+    بحث ذكي: نحاول عدة permutations من query حتى نملأ num_results إن أمكن.
+    نستخدم DuckDuckGo HTML endpoint ونفك روابط uddg إذا لزم.
+    """
+    base_query = f"{query} site:{site}" if site else query
+    collected = []
+    tried_queries = set()
+    # اجمع permutations لتجربة متتابعة
+    name_perms = generate_permutations(query)
+    # أضف الاستعلام الكامل في البداية
+    candidate_queries = [base_query] + [f"{p} site:{site}" if site else p for p in name_perms]
+
+    # حد أقصى للـ attempts
+    for candidate in candidate_queries:
+        if len(collected) >= num_results:
+            break
+        if candidate in tried_queries:
+            continue
+        tried_queries.add(candidate)
+
+        # تغيير user-agent عشوائياً من المجموعة
+        session.headers.update({"User-Agent": random.choice(HEADERS_POOL)})
+
+        url = "https://html.duckduckgo.com/html/"
+        params = {"q": candidate}
+
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                resp = session.get(url, params=params, timeout=20)
+                print(f"🔎 DuckDuckGo search '{candidate[:80]}' | status={resp.status_code}", flush=True)
+
+                if resp.status_code == 200:
+                    soup = BeautifulSoup(resp.text, "html.parser")
+                    anchors = soup.select("a.result__a")
+                    if not anchors:
+                        anchors = soup.find_all("a")
+
+                    for a in anchors:
+                        link = None
+                        href = a.get("href")
+                        if href:
+                            # فك udgg param
+                            if "uddg=" in href:
+                                m = re.search(r"uddg=([^&]+)", href)
+                                if m:
+                                    try:
+                                        link = urllib.parse.unquote(m.group(1))
+                                    except Exception:
+                                        link = None
+                            else:
+                                link = href
+
+                        if not link:
+                            data_href = a.get("data-href") or a.get("data-redirect")
+                            if data_href:
+                                link = data_href
+
+                        if link and link.startswith("http"):
+                            if "duckduckgo.com" not in link and link not in collected:
+                                # simple filter: يجب أن يحتوي على الـ domain إذا كان مطبوعاً في الاستعلام (site:)
+                                if site and site not in link:
+                                    # إذا البحث كان site:domain، تجاهل الروابط التي لا تملك الدومين
+                                    continue
+                                collected.append(link)
+                                print(f"   + found: {link}", flush=True)
+                        if len(collected) >= num_results:
+                            break
+
+                    # لو لم نحصل على شيء كافٍ: استخدم regex باك أب
+                    if len(collected) < num_results:
+                        extra = extract_links_from_html(resp.text, num_results - len(collected))
+                        for l in extra:
+                            if l not in collected:
+                                if site and site not in l:
+                                    continue
+                                collected.append(l)
+                                if len(collected) >= num_results:
+                                    break
+
+                    break  # خروج من attempts عند 200
+
+                elif resp.status_code in (429, 202):
+                    wait = 2 ** attempt
+                    print(f"⏳ Got {resp.status_code}, backoff {wait}s (attempt {attempt + 1})", flush=True)
+                    time.sleep(wait)
+                    continue
+                else:
+                    print("❌ DuckDuckGo returned status:", resp.status_code, flush=True)
+                    break
+
+            except Exception as e:
+                print("⚠️ Error searching:", e, flush=True)
+                traceback.print_exc()
+                time.sleep(1)
+                continue
+
+        # قليل من التأخير بين الاستعلامات
+        time.sleep(0.5)
+
+    # تأكد أننا نعيد حتى لو كانت فارغة
+    return collected[:num_results]
 
 
 @app.route("/search", methods=["POST"])
@@ -182,66 +240,59 @@ def search():
         data = request.get_json(silent=True) or {}
         identifier = (data.get("identifier", "") or "").strip()
         print(f"🔍 Searching for: {identifier}", flush=True)
+
         if not identifier:
             return jsonify([])
 
-        # تخزين البحث (محاولة آمنة - لا نكسر في حال فشل DB)
+        # تخزين البحث
         if client:
             try:
                 client.execute(
                     "INSERT INTO users_log (username, os, country, ip, search) VALUES (?, ?, ?, ?, ?)",
-                    ("server_user", "ServerOS", "Unknown", "0.0.0.0", identifier)
+                    ("server", "server", "Unknown", "0.0.0.0", identifier)
                 )
             except Exception as e:
                 print("DB insert error:", e)
 
         results = []
 
-        # أولاً: هل هناك كاش كامل للـ query؟ نقرأه مرة واحدة
-        cached_rows = []
-        if client:
-            try:
-                res = client.execute("SELECT platform, link FROM search_cache WHERE query=?", (identifier,))
-                try:
-                    cached_rows = res.fetchall()
-                except Exception:
-                    # إذا لم يكن res كائن DB مثل fetchall، نحاول تحويله لقائمة
-                    try:
-                        cached_rows = list(res)
-                    except Exception:
-                        cached_rows = []
-            except Exception as e:
-                print("Cache select error:", e)
-                cached_rows = []
-
-        if cached_rows:
-            for row in cached_rows:
-                # row يمكن أن يكون tuple أو قيمة مفردة
-                if isinstance(row, (list, tuple)) and len(row) >= 2:
-                    platform_name, link = row[0], row[1]
-                else:
-                    # حاول التعامل مع شكل غير متوقع
-                    continue
-                results.append({"platform": platform_name, "link": link})
-            print(f"Found {len(results)} results from cache", flush=True)
-            return jsonify(results)
-
-        # لا كاش: نجلب نتائج DuckDuckGo مرة واحدة ونصنّفها حسب الدومين
-        all_links = duckduckgo_search_all(identifier, max_links=300)
-        print(f"🔎 Total raw links fetched: {len(all_links)}", flush=True)
-
-        # صنّف حسب المنصات
         for platform_name, domain in PLATFORMS.items():
-            count = 0
-            for link in all_links:
-                try:
-                    netloc = urlparse(link).netloc.lower()
-                except Exception:
-                    netloc = ""
-                if domain in netloc or domain in link.lower():
+            try:
+                # جلب من الكاش أولاً
+                cached = []
+                if client:
+                    try:
+                        res = client.execute(
+                            "SELECT link FROM search_cache WHERE query=? AND platform=?",
+                            (identifier, platform_name)
+                        )
+                        if hasattr(res, "fetchall"):
+                            cached = res.fetchall()
+                        else:
+                            cached = list(res)
+                    except Exception as e:
+                        print("Cache select error:", e)
+                        cached = []
+
+                if cached:
+                    for row in cached:
+                        link = row[0] if isinstance(row, (list, tuple)) else row
+                        results.append({"platform": platform_name, "link": link})
+                    print(f"🗄️  Loaded {len(cached)} cached for {platform_name}", flush=True)
+                    continue
+
+                # بحث جديد: حاول الحصول على DESIRED_PER_PLATFORM
+                links = duckduckgo_search_links(identifier, site=domain, num_results=DESIRED_PER_PLATFORM)
+
+                if not links:
+                    # فالنهاية جرب بحث عام بدون site: للقبض على أي رابط مرتبط بالاسم
+                    links = duckduckgo_search_links(identifier, site=None, num_results=DESIRED_PER_PLATFORM)
+
+                if not links:
+                    print(f"⚠️ No links found for {platform_name} ({domain})", flush=True)
+
+                for link in links:
                     results.append({"platform": platform_name, "link": link})
-                    count += 1
-                    # خزّن في الكاش لو ممكن
                     if client:
                         try:
                             client.execute(
@@ -249,21 +300,26 @@ def search():
                                 (identifier, platform_name, link)
                             )
                         except Exception as e:
-                            print("Cache insert error:", e)
-                if count >= 10:
-                    break
-            # small delay between platform classification (لاجتماع UX وضمن الموارد)
-            time.sleep(REQUEST_DELAY)
+                            print("Cache insert error:", e, flush=True)
 
-        print(f"Found {len(results)} results total", flush=True)
+                # تأخير بين المنصات
+                time.sleep(REQUEST_DELAY)
+
+            except Exception as e:
+                print(f"Unhandled error searching {platform_name}:", e, flush=True)
+                traceback.print_exc()
+                continue
+
+        print(f"🔚 Finished search for: {identifier} -> total results: {len(results)}", flush=True)
         return jsonify(results)
 
     except Exception as e:
-        print("❌ Fatal error in /search:", e)
+        print("❌ Fatal error in /search:", e, flush=True)
         traceback.print_exc()
-        # بدل 500 نعيد 200 مع لستة فارغة ليتعامل الكلاينت بأمان
         return jsonify([])
-
+    
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+    # لا تغيّر port هنا — Railway/hosting سيتحكم بالـ port عبر متغير البيئة PORT
+    port = int(os.getenv("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
