@@ -21,7 +21,7 @@ PLATFORMS = {
 
 REQUEST_DELAY = 1.5
 MAX_RESULTS = 10
-MAX_RETRIES = 5
+MAX_RETRIES = 8  # رفع عدد المحاولات لتقليل فقدان النتائج
 
 HEADERS = {
     "User-Agent": (
@@ -56,16 +56,15 @@ def log_user_search(search_text):
 
 
 def duckduckgo_search(query, site=None, max_results=MAX_RESULTS):
-    """بحث في DuckDuckGo وإرجاع روابط"""
+    """بحث في DuckDuckGo مع Retry محسّن"""
     search_query = f"{query} site:{site}" if site else query
     url = "https://html.duckduckgo.com/html/"
     params = {"q": search_query}
-
     links = []
 
     for attempt in range(MAX_RETRIES):
         try:
-            resp = session.get(url, params=params, timeout=20)
+            resp = session.get(url, params=params, timeout=25)
             if resp.status_code == 200:
                 soup = BeautifulSoup(resp.text, "html.parser")
                 anchors = soup.select("a.result__a")
@@ -86,10 +85,11 @@ def duckduckgo_search(query, site=None, max_results=MAX_RESULTS):
                         links.append(link)
                     if len(links) >= max_results:
                         break
-                return links
+                if links:
+                    return links
             elif resp.status_code in (202, 429):
-                wait = (attempt + 1) * 3
-                print(f"⚠️ DuckDuckGo {resp.status_code}, retrying in {wait}s")
+                wait = (attempt + 1) * 3  # زيادة الوقت تدريجيًا
+                print(f"⚠️ DuckDuckGo {resp.status_code}, retrying in {wait}s (attempt {attempt + 1})")
                 time.sleep(wait)
                 continue
             else:
@@ -97,7 +97,8 @@ def duckduckgo_search(query, site=None, max_results=MAX_RESULTS):
                 break
         except Exception as e:
             print("⚠️ DuckDuckGo request error:", e)
-            time.sleep(1)
+            time.sleep(2)
+
     return links
 
 
