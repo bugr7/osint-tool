@@ -1,97 +1,61 @@
-# tool.py
-import requests
-from bs4 import BeautifulSoup
-from colorama import Fore, init, Style
-import time
 import platform
-import json
-from datetime import datetime
+import requests
+from colorama import Fore, init, Style
 import os
+import json
 
 init(autoreset=True)
 
-SERVER_URL = os.getenv("SERVER_URL", "http://127.0.0.1:8080/log_search")
+SERVER_URL = os.getenv("SERVER_URL", "https://osint-tool-production.up.railway.app/log_search")
 
-PLATFORMS = {
-    "Facebook": "facebook.com",
-    "Instagram": "instagram.com",
-    "Youtube": "youtube.com",
-    "TikTok": "tiktok.com",
-    "Snapchat": "snapchat.com",
-    "Reddit": "reddit.com",
-    "Twitter": "twitter.com",
-    "Pinterest": "pinterest.com",
-    "LinkedIn": "linkedin.com",
-}
-
-REQUEST_DELAY = 0.5
-
-def duckduckgo_search(query, site=None, num_results=10):
-    search_query = f"{query} site:{site}" if site else query
-    url = "https://html.duckduckgo.com/html/"
-    params = {"q": search_query}
-    headers = {"User-Agent": "Mozilla/5.0"}
-    links = []
+def send_search(identifier):
     try:
-        resp = requests.get(url, params=params, headers=headers, timeout=15)
-        soup = BeautifulSoup(resp.text, "html.parser")
-        anchors = soup.select("a.result__a")
-        for a in anchors:
-            href = a.get("href")
-            if href and "duckduckgo.com" not in href:
-                links.append(href)
-            if len(links) >= num_results:
-                break
-    except Exception as e:
-        print(Fore.RED + f"⚠️ Error searching {site}: {e}")
-    return links
+        ip = requests.get("https://api64.ipify.org?format=json", timeout=10).json().get("ip", "0.0.0.0")
+        country = requests.get(f"https://ipapi.co/{ip}/json/", timeout=10).json().get("country_name", "Unknown")
+    except:
+        ip, country = "0.0.0.0", "Unknown"
 
-def log_to_server(search_term):
-    ip = "Unknown"
+    username = platform.node()
     os_name = platform.system() + " " + platform.release()
-    timestamp = datetime.utcnow().isoformat()
+
+    payload = {
+        "identifier": identifier,
+        "username": username,
+        "os": os_name,
+        "ip": ip,
+        "country": country
+    }
+
     try:
-        import requests
-        ip = requests.get("https://api64.ipify.org?format=json", timeout=10).json().get("ip","Unknown")
-    except:
-        pass
-    payload = {"search": search_term, "ip": ip, "os": os_name, "timestamp": timestamp}
-    try:
-        requests.post(SERVER_URL, json=payload, timeout=10)
-    except:
-        pass
+        resp = requests.post(SERVER_URL, json=payload, timeout=30)
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception as e:
+        print(Fore.RED + f"⚠️ Request failed: {e}")
+    return []
+
 
 def main():
-    print(Fore.GREEN + "\nOSINT Tool - DuckDuckGo Scraper v1.0\n")
-    print(Fore.WHITE + "🔎 Platforms covered: " + ", ".join(PLATFORMS.keys()) + "\n")
-
+    print(Fore.GREEN + "OSINT Tool - DuckDuckGo HTML Scraper")
     while True:
-        identifier = input(Fore.CYAN + "[?] Enter username or firstname and lastname: " + Style.RESET_ALL).strip()
+        identifier = input(Fore.CYAN + "[?] Enter username or firstname and lastname: ").strip()
         if not identifier:
-            print(Fore.RED + "[!] No input provided.")
             continue
+        results = send_search(identifier)
+        if not results:
+            print(Fore.RED + "No results found.")
+            continue
+        grouped = {}
+        for r in results:
+            grouped.setdefault(r["platform"], []).append(r["link"])
+        for platform_name, links in grouped.items():
+            print(Fore.YELLOW + f"\n╭─ {platform_name} - {len(links)}/10 ─╮")
+            for link in links[:10]:
+                print(Fore.CYAN + f"   {link}")
+            print(Fore.YELLOW + "╰" + "─"*20 + "╯")
 
-        confirm = input(Fore.YELLOW + "[?] Do you have permission to search this account? (yes/no): ").strip().lower()
-        if confirm not in ("yes", "y"):
-            print(Fore.RED + "[!] Permission not confirmed. Exiting.")
-            break
-
-        log_to_server(identifier)
-
-        for platform_name, domain in PLATFORMS.items():
-            print(Fore.MAGENTA + f"\n🔍 Searching {platform_name}...")
-            links = duckduckgo_search(identifier, domain)
-            if links:
-                print(Fore.GREEN + f"{platform_name} - {len(links)}/10 results:")
-                for link in links:
-                    print(Fore.CYAN + f"   {link}")
-            else:
-                print(Fore.RED + f"{platform_name} - 0/10 No results found.")
-            time.sleep(REQUEST_DELAY)
-
-        again = input(Fore.MAGENTA + "\n[?] Do you want to search again? (yes/no): ").strip().lower()
-        if again not in ("yes", "y"):
-            print(Fore.GREEN + "\n[✔] Exiting OSINT tool. Bye 👋")
+        again = input(Fore.MAGENTA + "\n[?] Search again? (yes/no): ").strip().lower()
+        if again not in ("yes","y"):
             break
 
 if __name__ == "__main__":
