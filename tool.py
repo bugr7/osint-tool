@@ -23,28 +23,31 @@ PLATFORMS = {
 
 REQUEST_DELAY = 0.3
 
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    )
+}
+
 
 def search_via_api(identifier):
     try:
         response = requests.post(API_URL, json={"identifier": identifier}, timeout=25)
-    except requests.exceptions.RequestException as e:
-        # طبع سبب الفشل بدون الوصول إلى response (آمن)
-        print(Fore.RED + f"[!] API request failed: {e}", flush=True)
-        return []
-
-    # هنا response موجود - نعالج الحالة
-    if response.status_code == 200:
-        try:
+        if response.status_code == 200:
             return response.json()
-        except Exception as e:
-            print(Fore.RED + f"[!] Failed parsing API JSON: {e}", flush=True)
+        else:
+            print(Fore.RED + f"[!] API returned status {response.status_code}", flush=True)
+            # طباعة جزء من النص للمساعدة بالتصحيح
+            try:
+                print(f"API status: {response.status_code}")
+                print(f"API text: {response.text[:800]}")
+            except Exception:
+                pass
             return []
-    else:
-        print(Fore.RED + f"[!] API returned status {response.status_code}", flush=True)
-        try:
-            print(f"API text (start): {response.text[:400]}")
-        except Exception:
-            pass
+    except Exception as e:
+        print(Fore.RED + f"[!] API request failed: {e}", flush=True)
         return []
 
 
@@ -94,7 +97,7 @@ def main():
 
     print(Fore.WHITE + "🔎 Platforms covered: Facebook, Instagram, Youtube, TikTok, Snapchat, Reddit, Twitter, Pinterest, LinkedIn\n", flush=True)
 
-    # الحصول على IP و Country (غير مطلوب للعمل)
+    # الحصول على IP و Country
     try:
         ip = requests.get("https://api64.ipify.org?format=json", timeout=15).json().get("ip", "Unknown")
         country = requests.get(f"https://ipapi.co/{ip}/json/", timeout=15).json().get("country_name", "Unknown")
@@ -116,6 +119,7 @@ def main():
             continue
 
         # جلب النتائج عبر API (Railway/Turso server)
+        print(f"🔍 Searching for: {identifier}", flush=True)
         api_results = search_via_api(identifier)
         print(Fore.GREEN + f"[✔] Fetched {len(api_results)} results from API.", flush=True)
 
