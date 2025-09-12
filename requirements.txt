@@ -1,4 +1,4 @@
-Flask
-requests
-beautifulsoup4
-libsql-client
+Flask>=3.1.2
+requests>=2.31.0
+ddg3>=0.6.8
+libsql-client>=0.3.5
