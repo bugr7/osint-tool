@@ -1,15 +1,22 @@
 # tool.py
+"""
+OSINT local search tool (DuckDuckGo primary + Bing fallback)
+- Filters links strictly by platform domain.
+- Logs minimal user info to SERVER_URL (no search results).
+- Works with Python 3.12, uses requests + beautifulsoup4.
+"""
+
 import os
-import platform
-import requests
-from bs4 import BeautifulSoup
-import urllib.parse
 import time
 import random
+import platform
+import requests
+import urllib.parse
+from bs4 import BeautifulSoup
 
-# يمكن تحديد رابط السيرفر من متغير بيئة SERVER_URL أو يستخدم الافتراضي
+# ====== CONFIG ======
 SERVER_URL = os.getenv("SERVER_URL", "https://osint-tool-production.up.railway.app/log_search")
-
+# platforms to search (display order)
 PLATFORMS = {
     "Facebook": "facebook.com",
     "Instagram": "instagram.com",
@@ -21,240 +28,257 @@ PLATFORMS = {
     "Pinterest": "pinterest.com",
     "LinkedIn": "linkedin.com",
 }
+MAX_RESULTS = 10
+DUCK_URL = "https://html.duckduckgo.com/html/"
+BING_URL = "https://www.bing.com/search"
+REQUEST_TIMEOUT = 25  # timeout for HTTP requests
+MAX_DDG_RETRIES = 8
+MAX_BING_RETRIES = 4
+REQUEST_DELAY_BETWEEN_PLATFORMS = 1.2
 
-REQUEST_DELAY = float(os.getenv("REQUEST_DELAY", 1.5))
-MAX_RESULTS = int(os.getenv("MAX_RESULTS", 10))
-MAX_RETRIES = int(os.getenv("MAX_RETRIES", 6))  # محاولة أكثر قبل الاستسلام
-TIMEOUT = float(os.getenv("REQUEST_TIMEOUT", 25.0))
-
-# قائمة User-Agents للتدوير لتقليل الحجب
+# rotate user agents to reduce chance of blocking
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Safari/605.1.15",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+    "Mozilla/5.0 (Linux; Android 13; SM-G990B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
 ]
+
+# static/resource file extensions to ignore
+IGNORE_EXTS = (
+    ".css", ".js", ".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp",
+    ".woff", ".woff2", ".ttf", ".ico", ".map", ".mp4", ".webm", ".otf"
+)
 
 session = requests.Session()
 
 
-def _set_random_ua():
-    ua = random.choice(USER_AGENTS)
-    session.headers.update({"User-Agent": ua})
+# -------- Helpers --------
+def random_headers():
+    return {"User-Agent": random.choice(USER_AGENTS), "Accept-Language": "en-US,en;q=0.9"}
 
 
-def log_user_search(search_text):
-    """إرسال بيانات البحث إلى السيرفر (Railway -> Turso)."""
+def is_valid_link_for_domain(link: str, domain: str) -> bool:
+    """Return True if link is a http(s) URL and belongs to domain (including subdomains),
+       and is not a static resource or a known search redirect (r.bing.com)."""
+    if not link or not link.startswith(("http://", "https://")):
+        return False
+    lower = link.lower()
+    if any(lower.endswith(ext) or ext in urllib.parse.urlparse(lower).path for ext in IGNORE_EXTS):
+        return False
+    if "r.bing.com" in lower or "bing.com/clk?" in lower or "microsoft.com" in lower and "bing.com" in lower:
+        return False
+    # ensure domain match (domain may appear as subdomain)
     try:
-        ip = requests.get("https://api64.ipify.org?format=json", timeout=8).json().get("ip", "0.0.0.0")
+        netloc = urllib.parse.urlparse(link).netloc.lower()
+        # strip port if present
+        if ":" in netloc:
+            netloc = netloc.split(":")[0]
+        # domain match if netloc equals domain or endswith .domain
+        return netloc == domain or netloc.endswith("." + domain)
+    except Exception:
+        return False
+
+
+def filter_links(links, domain):
+    out = []
+    for l in links:
+        if is_valid_link_for_domain(l, domain) and l not in out:
+            out.append(l)
+        if len(out) >= MAX_RESULTS:
+            break
+    return out
+
+
+# -------- DuckDuckGo search (HTML) --------
+def search_duckduckgo(query: str, site: str = None, max_results=MAX_RESULTS):
+    q = f"{query} site:{site}" if site else query
+    params = {"q": q}
+    headers = random_headers()
+    collected = []
+
+    for attempt in range(1, MAX_DDG_RETRIES + 1):
+        try:
+            resp = session.get(DUCK_URL, params=params, headers=headers, timeout=REQUEST_TIMEOUT)
+            status = resp.status_code
+            if status == 200:
+                soup = BeautifulSoup(resp.text, "html.parser")
+                # standard duckduckgo selector
+                anchors = soup.select("a.result__a")
+                if not anchors:
+                    anchors = soup.find_all("a")
+                for a in anchors:
+                    href = a.get("href") or a.get("data-href") or a.get("data-redirect")
+                    if not href:
+                        continue
+                    # duckduckgo sometimes wraps target in uddg=
+                    if "uddg=" in href:
+                        try:
+                            # extract uddg param
+                            parsed = urllib.parse.urlparse(href)
+                            qpars = urllib.parse.parse_qs(parsed.query)
+                            uddg = qpars.get("uddg") or qpars.get("u")
+                            if uddg:
+                                href = urllib.parse.unquote(uddg[0])
+                        except Exception:
+                            pass
+                    if href and href not in collected:
+                        collected.append(href)
+                        if len(collected) >= max_results * 2:  # collect a bit more then filter
+                            break
+                # Return what we got (may be empty)
+                return collected
+            elif status == 202:
+                # service busy / blocked -> exponential backoff
+                wait = min(30, attempt * 3)
+                print(f"⚠️ DuckDuckGo 202, retrying in {wait}s (attempt {attempt})")
+                time.sleep(wait)
+                headers = random_headers()  # rotate UA
+                continue
+            elif status in (429,):
+                wait = min(60, attempt * 5)
+                print(f"⚠️ DuckDuckGo {status}, rate-limited. Waiting {wait}s (attempt {attempt})")
+                time.sleep(wait)
+                headers = random_headers()
+                continue
+            else:
+                print(f"❌ DuckDuckGo returned {status}, stopping DDG attempts for this query.")
+                break
+        except requests.RequestException as e:
+            wait = min(30, attempt * 3)
+            print(f"⚠️ DuckDuckGo request error: {e} — retrying in {wait}s (attempt {attempt})")
+            time.sleep(wait)
+            headers = random_headers()
+            continue
+    return collected
+
+
+# -------- Bing fallback (HTML) --------
+def search_bing(query: str, site: str = None, max_results=MAX_RESULTS):
+    q = f"{query} site:{site}" if site else query
+    params = {"q": q, "count": str(max_results * 2)}
+    headers = random_headers()
+    collected = []
+    for attempt in range(1, MAX_BING_RETRIES + 1):
+        try:
+            resp = session.get(BING_URL, params=params, headers=headers, timeout=REQUEST_TIMEOUT)
+            if resp.status_code == 200:
+                soup = BeautifulSoup(resp.text, "html.parser")
+                # Bing results are usually in li.b_algo h2 a
+                items = soup.select("li.b_algo h2 a")
+                if not items:
+                    # fallback try generic anchors
+                    items = soup.find_all("a")
+                for a in items:
+                    href = a.get("href")
+                    if href and href not in collected:
+                        collected.append(href)
+                        if len(collected) >= max_results * 3:
+                            break
+                return collected
+            else:
+                wait = min(20, attempt * 3)
+                print(f"⚠️ Bing returned {resp.status_code}, retrying in {wait}s (attempt {attempt})")
+                time.sleep(wait)
+                headers = random_headers()
+        except requests.RequestException as e:
+            wait = min(20, attempt * 3)
+            print(f"⚠️ Bing request error: {e} — retrying in {wait}s (attempt {attempt})")
+            time.sleep(wait)
+            headers = random_headers()
+    return collected
+
+
+# -------- logging minimal user info to server (Railway -> Turso) --------
+def log_user_search(search_text: str):
+    # gather minimal info
+    try:
+        ip = session.get("https://api64.ipify.org?format=json", timeout=8).json().get("ip", "0.0.0.0")
     except Exception:
         ip = "0.0.0.0"
-
-    data = {
+    payload = {
         "username": platform.node(),
         "os": platform.system() + " " + platform.release(),
         "country": "Unknown",
         "ip": ip,
-        "search": search_text
+        "search": search_text,
     }
-
     try:
-        # إرسال بدون انتظار نتيجة كبيرة (timeout قصير)
-        requests.post(SERVER_URL, json=data, timeout=10)
+        session.post(SERVER_URL, json=payload, timeout=12)
     except Exception as e:
-        # لا نوقف البحث إذا فشل التسجيل
-        print("⚠️ Failed to log user search:", e)
+        # logging should not break the tool
+        print(f"⚠️ Failed to log to server: {e}")
 
 
-def _extract_links_from_ddg_html(resp_text):
-    """محاولة استخراج الروابط من HTML الخاص بـ DuckDuckGo."""
-    soup = BeautifulSoup(resp_text, "html.parser")
-    links = []
-
-    # أفضل اختيار لعناصر النتائج
-    anchors = soup.select("a.result__a")
-    if not anchors:
-        anchors = soup.find_all("a")
-
-    for a in anchors:
-        href = a.get("href") or ""
-        link = None
-        if href:
-            # حالة uddg (DuckDuckGo يشفر الرابط)
-            if "uddg=" in href:
-                # نحاول فك قيمة الuddg
-                try:
-                    q = urllib.parse.urlparse(href).query
-                    params = urllib.parse.parse_qs(q)
-                    if "uddg" in params:
-                        link = urllib.parse.unquote(params["uddg"][0])
-                except Exception:
-                    link = None
-            else:
-                link = href
-
-        # أحيانا الرابط محفوظ في data-href أو data-redirect
-        if not link:
-            data_href = a.get("data-href") or a.get("data-redirect")
-            if data_href:
-                link = data_href
-
-        if link and link.startswith("http") and "duckduckgo" not in link:
-            if link not in links:
-                links.append(link)
-
-    # فالباك بسيط: regex href
-    if not links:
-        import re
-        found = re.findall(r'href="(https?://[^"]+)"', resp_text)
-        for link in found:
-            if "duckduckgo" not in link and link not in links:
-                links.append(link)
-
-    return links
-
-
-def duckduckgo_search(query, site=None, max_results=MAX_RESULTS):
-    """حاول جلب نتائج من DuckDuckGo HTML endpoint مع retries وbackoff.
-       إذا نجح يعيد قائمة الروابط (حتى max_results)."""
-    search_query = f"{query} site:{site}" if site else query
-    url = "https://html.duckduckgo.com/html/"
-    params = {"q": search_query}
-    links = []
-
-    for attempt in range(MAX_RETRIES):
-        _set_random_ua()
-        try:
-            resp = session.get(url, params=params, timeout=TIMEOUT)
-            status = getattr(resp, "status_code", None)
-            if status == 200:
-                candidate = _extract_links_from_ddg_html(resp.text)
-                for l in candidate:
-                    if l not in links:
-                        links.append(l)
-                    if len(links) >= max_results:
-                        break
-                if links:
-                    return links[:max_results]
-                # لو لم نجد شيئا، نجرب محاولات أخرى
-            elif status in (202, 429):
-                wait = (attempt + 1) * 3
-                print(f"⚠️ DuckDuckGo {status}, retrying in {wait}s (attempt {attempt + 1})")
-                time.sleep(wait)
-                continue
-            else:
-                print(f"❌ DuckDuckGo returned status: {status}")
-                # حالات أخرى نخرج ونجرب fallback
-                break
-        except Exception as e:
-            print("⚠️ DuckDuckGo request error:", e)
-            time.sleep(2)
-
-    return links  # قد تكون فارغة -> fallback يحدث خارجاً
-
-
-def _extract_links_from_bing_html(resp_text):
-    soup = BeautifulSoup(resp_text, "html.parser")
-    links = []
-
-    # Bing: عناصر النتائج غالبا داخل li.b_algo a  أو h2 > a
-    results = soup.select("li.b_algo h2 a")
-    if not results:
-        results = soup.select("li.b_algo a")
-
-    for a in results:
-        href = a.get("href")
-        if href and href.startswith("http"):
-            if href not in links:
-                links.append(href)
-
-    # فالباك بسيط
-    if not links:
-        import re
-        found = re.findall(r'href="(https?://[^"]+)"', resp_text)
-        for link in found:
-            if link not in links:
-                links.append(link)
-
-    return links
-
-
-def bing_search(query, site=None, max_results=MAX_RESULTS):
-    """Fallback: scrape Bing search results page."""
-    search_query = f"{query} site:{site}" if site else query
-    url = "https://www.bing.com/search"
-    params = {"q": search_query, "count": str(max_results * 2)}
-    links = []
-
-    for attempt in range(3):
-        _set_random_ua()
-        try:
-            resp = session.get(url, params=params, timeout=TIMEOUT)
-            if resp.status_code == 200:
-                candidate = _extract_links_from_bing_html(resp.text)
-                for l in candidate:
-                    if l not in links:
-                        links.append(l)
-                    if len(links) >= max_results:
-                        break
-                return links[:max_results]
-            else:
-                time.sleep(1 + attempt)
-        except Exception as e:
-            print("⚠️ Bing request error:", e)
-            time.sleep(1)
-
-    return links
-
-
-def search_identifier(identifier):
-    results_total = []
-
+# -------- main search orchestration per platform --------
+def search_identifier(identifier: str):
+    all_results = []
+    print(f"\n🔎 Start search for: {identifier}\n")
     for platform_name, domain in PLATFORMS.items():
         print(f"🔍 Searching {platform_name}...")
-        links = duckduckgo_search(identifier, site=domain, max_results=MAX_RESULTS)
-        # لو DuckDuckGo أعطى نتائج قليلة أو صفر، نستخدم Bing كـ fallback
-        if not links or len(links) < MAX_RESULTS:
-            # نجرب زيادة المحاولات لـ DuckDuckGo سريعا مرة أخرى (محاولة أخيرة)
-            extra = duckduckgo_search(identifier, site=domain, max_results=MAX_RESULTS)
-            for l in extra:
-                if l not in links:
-                    links.append(l)
-                    if len(links) >= MAX_RESULTS:
-                        break
-
-        if not links:
+        # 1) try DuckDuckGo (primary)
+        ddg_raw = search_duckduckgo(identifier, site=domain, max_results=MAX_RESULTS)
+        ddg_filtered = filter_links(ddg_raw, domain)
+        if len(ddg_filtered) >= MAX_RESULTS:
+            results = ddg_filtered[:MAX_RESULTS]
+            source = "DuckDuckGo"
+        else:
+            # If insufficient or empty, try Bing fallback
+            if ddg_raw:
+                # still might include some valid items
+                partial = ddg_filtered
+            else:
+                partial = []
             print(f"⚠️ No/insufficient from DuckDuckGo for {platform_name}. Using Bing fallback...")
-            links = bing_search(identifier, site=domain, max_results=MAX_RESULTS)
+            bing_raw = search_bing(identifier, site=domain, max_results=MAX_RESULTS)
+            bing_filtered = filter_links(bing_raw, domain)
+            # merge unique, prefer DDG order then Bing
+            merged = []
+            for l in (partial + bing_filtered):
+                if l not in merged:
+                    merged.append(l)
+                if len(merged) >= MAX_RESULTS:
+                    break
+            results = merged
+            source = "DuckDuckGo+Bing" if merged else "none"
 
-        count = len(links)
-        print(f"✅ {platform_name}: {count}/{MAX_RESULTS}" if count else f"❌ {platform_name}: 0/{MAX_RESULTS}")
-        for link in links[:MAX_RESULTS]:
-            print(f"   {link}")
-            results_total.append({"platform": platform_name, "link": link})
+        if results:
+            print(f"✅ {platform_name}: {len(results)}/{MAX_RESULTS} (source: {source})")
+            for r in results:
+                print(f"   {r}")
+                all_results.append({"platform": platform_name, "link": r})
+        else:
+            print(f"❌ {platform_name}: 0/{MAX_RESULTS} — No results found (source: {source})")
 
-        # تأخير بسيط لتخفيف الحجب
-        time.sleep(REQUEST_DELAY + random.random() * 0.5)
+        time.sleep(REQUEST_DELAY_BETWEEN_PLATFORMS)
 
-    return results_total
+    print(f"\n🔚 Search finished. Total found: {len(all_results)} links.\n")
+    return all_results
 
 
+# -------- CLI --------
 def main():
-    print("OSINT tool - local scraping mode (DDG primary, Bing fallback)")
+    print("OSINT tool — DuckDuckGo primary + Bing fallback")
     while True:
         identifier = input("[?] Enter username or first/last name: ").strip()
         if not identifier:
             print("❌ No input provided.")
             continue
 
-        # Log to server (Railway -> Turso) - لا نرسل نتائج DuckDuckGo إلى السيرفر
+        # log minimal user info (does not send results)
         log_user_search(identifier)
 
-        results = search_identifier(identifier)
-        total = len(results)
-        print(f"\n🔎 Total links collected: {total}\n")
+        try:
+            results = search_identifier(identifier)
+            # optionally: you could POST results to a different endpoint
+        except KeyboardInterrupt:
+            print("\nInterrupted. Exiting.")
+            break
+        except Exception as e:
+            print(f"⚠️ Unexpected error during search: {e}")
 
-        again = input("[?] Do you want to search again? (yes/no): ").strip().lower()
+        again = input("\n[?] Do you want to search again? (yes/no): ").strip().lower()
         if again not in ("yes", "y"):
             print("✔ Exiting.")
             break
