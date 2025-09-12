@@ -1,14 +1,12 @@
-# osint_tool_bs4_requests_alpha_style.py
-import platform
-import time
-import urllib.parse
 import requests
 from bs4 import BeautifulSoup
 from colorama import Fore, init, Style
+import platform
+import time
 
 init(autoreset=True)
 
-# ===== المنصات الرئيسية =====
+# ===== المنصات =====
 PLATFORMS = {
     "Facebook": "facebook.com",
     "Instagram": "instagram.com",
@@ -22,11 +20,11 @@ PLATFORMS = {
 }
 
 REQUEST_DELAY = 0.5
-MAX_RESULTS = 10
 
-# ===== البحث في ياندكس =====
-def yandex_search(query, num_results=10):
-    url = f"https://yandex.com/search/?text={query.replace(' ', '+')}&search_source=yacom_desktop_common"
+# ===== البحث في Yandex =====
+def search_yandex(query, site=None, num_results=10):
+    search_query = f"{query} site:{site}" if site else query
+    url = f"https://yandex.com/search/?text={search_query.replace(' ', '+')}&search_source=yacom_desktop_common"
     links = []
     try:
         r = requests.get(url, timeout=10)
@@ -37,10 +35,10 @@ def yandex_search(query, num_results=10):
             if href and href.startswith("http"):
                 links.append(href)
     except Exception as e:
-        print(f"⚠️ Error searching Yandex: {e}")
+        print(Fore.RED + f"⚠️ Error searching {site}: {e}")
     return links
 
-# ===== عرض النتائج بنفس تصميم نسخة ألفا =====
+# ===== عرض النتائج =====
 def run_checks(identifier):
     print(Fore.MAGENTA + "\n" + "="*60)
     print(Fore.MAGENTA + f"🔍 Start search about: {identifier}")
@@ -50,7 +48,7 @@ def run_checks(identifier):
         print(Fore.YELLOW + f"🔍 Searching {platform_name}...")
         links = search_yandex(identifier, domain)
         count = len(links)
-        print(Fore.GREEN + f"✅ {platform_name}: {count}/{MAX_RESULTS}")
+        print(Fore.GREEN + f"✅ {platform_name}: {count}/10")
 
         if links:
             for link in links:
@@ -65,17 +63,17 @@ def run_checks(identifier):
 def main():
     print(Fore.GREEN + """
  /$$$$$$$                                   /$$$$$$$$
-| $$__  $$                                 |_____ $$/
-| $$  \ $$ /$$   /$$  /$$$$$$         /$$$$$$   /$$/ 
-| $$$$$$$ | $$  | $$ /$$__  $$       /$$__  $$ /$$/  
-| $$__  $$| $$  | $$| $$  \ $$      | $$  \__//$$/   
-| $$  \ $$| $$  | $$| $$  | $$      | $$     /$$/    
-| $$$$$$$/|  $$$$$$/|  $$$$$$$      | $$    /$$/     
-|_______/  \______/  \____  $$      |__/   |__/      
+| $$__  $$                                 |_____ $$/ 
+| $$  \ $$ /$$   /$$  /$$$$$$         /$$$$$$   /$$/  
+| $$$$$$$ | $$  | $$ /$$__  $$       /$$__  $$ /$$/   
+| $$__  $$| $$  | $$| $$  \ $$      | $$  \__//$$/    
+| $$  \ $$| $$  | $$| $$  | $$      | $$     /$$/     
+| $$$$$$$/|  $$$$$$/|  $$$$$$$      | $$    /$$/      
+|_______/  \______/  \____  $$      |__/   |__/       
                      /$$  \ $$                        
                     |  $$$$$$/                        
                      \______/                         
-""" + Fore.RED + "OSINT Tool - BS4 Requests version 0.1" + Fore.GREEN + "\n")
+""" + Fore.RED + "OSINT Tool - Yandex version 0.1" + Fore.GREEN + "\n")
 
     print(Fore.WHITE + "🔎 Platforms covered: Facebook, Instagram, Youtube, TikTok, Snapchat, Reddit, Twitter, Pinterest, LinkedIn\n")
 
