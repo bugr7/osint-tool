@@ -4,6 +4,7 @@ from colorama import Fore, init, Style
 import platform
 import time
 
+# تفعيل الألوان
 init(autoreset=True)
 
 # ===== المنصات =====
@@ -19,76 +20,71 @@ PLATFORMS = {
     "LinkedIn": "linkedin.com",
 }
 
-REQUEST_DELAY = 0.5
+REQUEST_DELAY = 0.5  # تأخير بين المنصات باش ما يبانش spam
 
-# ===== البحث في Yandex =====
-def search_yandex(query, site=None, num_results=10):
-    search_query = f"{query} site:{site}" if site else query
-    url = f"https://yandex.com/search/?text={search_query.replace(' ', '+')}&search_source=yacom_desktop_common"
-    links = []
-    try:
-        r = requests.get(url, timeout=10)
-        r.raise_for_status()
-        soup = BeautifulSoup(r.text, "html.parser")
-        for a in soup.select("a.Link.Link_theme_normal")[:num_results]:
-            href = a.get("href")
-            if href and href.startswith("http"):
-                links.append(href)
-    except Exception as e:
-        print(Fore.RED + f"⚠️ Error searching {site}: {e}")
-    return links
+# ===== دالة البحث في Bing =====
+def search_bing(query, domain):
+    url = f"https://www.bing.com/search?q={query.replace(' ', '+')}+site:{domain}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/122.0.0.0 Safari/537.36"
+    }
+    response = requests.get(url, headers=headers)
 
-# ===== عرض النتائج =====
+    if response.status_code != 200:
+        return []
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    results = []
+
+    for item in soup.select("li.b_algo h2 a"):
+        link = item.get("href")
+        if link and domain in link:
+            results.append(link)
+
+    return results
+
+
+# ===== تشغيل الفحص =====
 def run_checks(identifier):
-    print(Fore.MAGENTA + "\n" + "="*60)
-    print(Fore.MAGENTA + f"🔍 Start search about: {identifier}")
-    print(Fore.MAGENTA + "="*60 + "\n")
+    for platform, domain in PLATFORMS.items():
+        print(Fore.YELLOW + f"\n🔍 Searching {platform}...")
+        results = search_bing(identifier, domain)
 
-    for platform_name, domain in PLATFORMS.items():
-        print(Fore.YELLOW + f"🔍 Searching {platform_name}...")
-        links = search_yandex(identifier, domain)
-        count = len(links)
-        print(Fore.GREEN + f"✅ {platform_name}: {count}/10")
-
-        if links:
-            for link in links:
-                print(Fore.CYAN + f"   {link}")
+        if not results:
+            print(Fore.RED + f"⚠️ No results from Bing for {platform}")
         else:
-            print(Fore.RED + "   No results found.")
+            print(Fore.GREEN + f"✅ {platform}: {len(results)}/10")
+            for link in results[:10]:
+                print(Fore.CYAN + "   " + link)
 
-        print(Fore.MAGENTA + "-"*60 + "\n")
         time.sleep(REQUEST_DELAY)
 
-# ===== البرنامج الرئيسي =====
+
+# ===== الدالة الرئيسية =====
 def main():
     print(Fore.GREEN + """
  /$$$$$$$                                   /$$$$$$$$
-| $$__  $$                                 |_____ $$/ 
-| $$  \ $$ /$$   /$$  /$$$$$$         /$$$$$$   /$$/  
-| $$$$$$$ | $$  | $$ /$$__  $$       /$$__  $$ /$$/   
-| $$__  $$| $$  | $$| $$  \ $$      | $$  \__//$$/    
-| $$  \ $$| $$  | $$| $$  | $$      | $$     /$$/     
-| $$$$$$$/|  $$$$$$/|  $$$$$$$      | $$    /$$/      
-|_______/  \______/  \____  $$      |__/   |__/       
-                     /$$  \ $$                        
-                    |  $$$$$$/                        
-                     \______/                         
-""" + Fore.RED + "OSINT Tool - Yandex version 0.1" + Fore.GREEN + "\n")
+| $$__  $$                                 |_____ $$/
+| $$  \ $$ /$$   /$$  /$$$$$$         /$$$$$$   /$$/ 
+| $$$$$$$ | $$  | $$ /$$__  $$       |____  $$ /$$/  
+| $$__  $$| $$  | $$| $$$$$$$$        /$$$$$$$| $$   
+| $$  \ $$| $$  | $$| $$_____/       /$$__  $$| $$   
+| $$$$$$$/|  $$$$$$$|  $$$$$$$      |  $$$$$$$| $$   
+|_______/  \____  $$ \_______/       \_______/|__/   
+           /$$  | $$                                
+          |  $$$$$$/                                
+           \______/                                 
+    """)
+    print(Fore.CYAN + "===== أداة OSINT (Bing Only) =====\n")
 
-    print(Fore.WHITE + "🔎 Platforms covered: Facebook, Instagram, Youtube, TikTok, Snapchat, Reddit, Twitter, Pinterest, LinkedIn\n")
-
-    while True:
-        identifier = input(Fore.CYAN + "[?] Enter username or firstname and lastname: " + Style.RESET_ALL).strip()
-        if not identifier:
-            print(Fore.RED + "[!] No input provided.")
-            continue
-
+    identifier = input(Fore.YELLOW + "[?] Enter username or first/last name: ").strip()
+    if identifier:
         run_checks(identifier)
+    else:
+        print(Fore.RED + "⚠️ No input provided")
 
-        again = input(Fore.MAGENTA + "\n[?] Do you want to search again? (yes/no): ").strip().lower()
-        if again not in ("yes", "y"):
-            print(Fore.GREEN + "\n[✔] Exiting OSINT tool. Bye 👋")
-            break
 
 if __name__ == "__main__":
     main()
