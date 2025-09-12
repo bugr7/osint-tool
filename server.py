@@ -1,25 +1,26 @@
 # server.py
 from flask import Flask, request, jsonify
 from libsql_client import create_client_sync
+from migrate import migrate
 import os
 import time
 
 app = Flask(__name__)
 
-# إعداد Turso DB عبر متغيرات البيئة
 DATABASE_URL = os.getenv("DATABASE_URL")
 AUTH_TOKEN = os.getenv("AUTH_TOKEN")
 
+# ===== إعداد Turso =====
 client = create_client_sync(url=DATABASE_URL, auth_token=AUTH_TOKEN)
+migrate(client)
 
-# إنشاء جدول log إذا لم يكن موجود
 client.execute("""
 CREATE TABLE IF NOT EXISTS users_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT,
+    query TEXT,
     ip TEXT,
-    search TEXT,
-    timestamp TEXT
+    os TEXT,
+    timestamp INTEGER
 )
 """)
 
@@ -27,17 +28,20 @@ CREATE TABLE IF NOT EXISTS users_log (
 def log_search():
     try:
         data = request.get_json() or {}
-        username = data.get("username", "unknown")
-        ip = data.get("ip", "0.0.0.0")
-        search = data.get("search", "")
-        timestamp = data.get("timestamp", str(int(time.time())))
+        query = data.get("query", "")
+        ip = data.get("ip", "")
+        os_name = data.get("os", "")
+        timestamp = data.get("timestamp", int(time.time()))
+
         client.execute(
-            "INSERT INTO users_log (username, ip, search, timestamp) VALUES (?, ?, ?, ?)",
-            (username, ip, search, timestamp)
+            "INSERT INTO users_log (query, ip, os, timestamp) VALUES (?, ?, ?, ?)",
+            (query, ip, os_name, timestamp)
         )
-        return jsonify({"status": "ok"})
+        return jsonify({"status": "ok"}), 200
     except Exception as e:
-        return jsonify({"status": "error", "msg": str(e)})
+        print("Error logging search:", e)
+        return jsonify({"status": "error"}), 500
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
+    port = int(os.getenv("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
