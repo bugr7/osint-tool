@@ -4,8 +4,10 @@ import time
 import socket
 import platform
 import requests
-from ddg3 import ddg
+from ddg3 import DDGS  # التعديل: استخدم DDGS بدل ddg
 from datetime import datetime
+
+ddgs = DDGS()  # إنشاء كائن DDGS
 
 RAILWAY_URL = os.getenv("RAILWAY_SERVER_URL")  # مثال: http://127.0.0.1:5000/log_search
 
@@ -48,12 +50,12 @@ def search_platform(query, platform_name, domain):
     attempts = 0
     while attempts < 5:
         try:
-            results = ddg(search_query, max_results=MAX_RESULTS)
+            results = ddgs.text(search_query)  # التعديل: استخدم text() بدل ddg()
             if results:
-                links = [r["href"] for r in results if "href" in r]
+                # بعض النتائج ممكن تكون نصوص فقط، لذلك نبحث على الروابط إن وجدت
+                links = [r for r in results if r.startswith("http")]
                 return links[:MAX_RESULTS]
             else:
-                # DuckDuckGo returned empty => retry
                 attempts += 1
                 time.sleep(RETRY_DELAY)
         except requests.exceptions.RequestException as e:
