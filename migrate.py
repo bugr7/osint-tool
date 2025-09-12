@@ -2,16 +2,29 @@
 def migrate(client):
     """
     يتأكد من وجود الأعمدة المطلوبة في جدول users_log.
-    إذا لم تكن موجودة، يضيفها.
+    إذا ماكانوش موجودين يضيفهم.
     """
-    required_columns = ["username", "os", "country", "ip", "search", "created_at"]
+    required_columns = ["username", "os", "ip", "search", "created_at"]
 
-    try:
-        result = client.execute("PRAGMA table_info(users_log)").rows
-        existing_columns = [row[1] for row in result]  # row[1] = اسم العمود
-    except Exception:
-        existing_columns = []
+    # جلب الأعمدة الحالية
+    result = client.execute("PRAGMA table_info(users_log)").rows
+    existing_columns = [row[1] for row in result]  # row[1] = اسم العمود
 
+    # إنشاء الجدول إذا لم يكن موجود
+    if not existing_columns:
+        client.execute("""
+            CREATE TABLE IF NOT EXISTS users_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT,
+                os TEXT,
+                ip TEXT,
+                search TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        return
+
+    # إضافة الأعمدة الناقصة
     for column in required_columns:
         if column not in existing_columns:
             if column == "created_at":
