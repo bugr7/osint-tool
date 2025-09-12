@@ -1,5 +1,6 @@
 flask
 requests
+beautifulsoup4
 colorama
 libsql-client
 migrate
