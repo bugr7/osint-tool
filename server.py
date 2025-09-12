@@ -9,50 +9,24 @@ app = Flask(__name__)
 DATABASE_URL = os.getenv("DATABASE_URL")
 AUTH_TOKEN = os.getenv("AUTH_TOKEN")
 
-client = None
-try:
-    client = create_client_sync(url=DATABASE_URL, auth_token=AUTH_TOKEN)
-    migrate(client)
-except Exception as e:
-    print("⚠️ Turso init failed:", e)
-
-if client:
-    try:
-        client.execute("""
-        CREATE TABLE IF NOT EXISTS users_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT,
-            os TEXT,
-            country TEXT,
-            ip TEXT,
-            search TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        """)
-    except Exception as e:
-        print("Error creating users_log:", e)
-
+client = create_client_sync(url=DATABASE_URL, auth_token=AUTH_TOKEN)
+migrate(client)
 
 @app.route("/log_search", methods=["POST"])
 def log_search():
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True)
     try:
-        if client:
-            client.execute(
-                "INSERT INTO users_log (username, os, country, ip, search) VALUES (?, ?, ?, ?, ?)",
-                (
-                    data.get("username", "Unknown"),
-                    data.get("os", "Unknown"),
-                    data.get("country", "Unknown"),
-                    data.get("ip", "0.0.0.0"),
-                    data.get("search", ""),
-                )
-            )
-        return jsonify({"status": "ok"})
+        client.execute(
+            "INSERT INTO users_log (username, ip, os, search, created_at) VALUES (?, ?, ?, ?, ?)",
+            (data.get("username", ""),
+             data.get("ip", ""),
+             data.get("os", ""),
+             data.get("search", ""),
+             data.get("created_at", ""))
+        )
     except Exception as e:
         print("DB insert error:", e)
-        return jsonify({"status": "error", "error": str(e)})
-
+    return jsonify({"status": "ok"})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
