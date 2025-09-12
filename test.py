@@ -1,5 +1,4 @@
 import ddg3
 
-# البحث نصي
-results = ddg3.text("python programming")  # بدل ddg أو DDGS
+results = ddg3.ddg("python programming")  # دالة البحث القديمة
 print(results)
