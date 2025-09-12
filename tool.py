@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 import urllib.parse
 import time
 
-SERVER_URL = os.getenv("RAILWAY_SERVER_URL")
+SERVER_URL = "https://osint-tool-production.up.railway.app/log_search"
 
 PLATFORMS = {
     "Facebook": "facebook.com",
@@ -140,5 +140,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
