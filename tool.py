@@ -1,8 +1,8 @@
 # tool.py
 import platform
 import requests
-from ddg3 import ddg
-from datetime import datetime
+from bs4 import BeautifulSoup
+import urllib.parse
 import time
 
 SERVER_URL = "https://osint-tool-production.up.railway.app/log_search"  # ضع رابط السيرفر هنا
@@ -21,6 +21,18 @@ PLATFORMS = {
 
 REQUEST_DELAY = 1.5
 MAX_RESULTS = 10
+MAX_RETRIES = 5
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    )
+}
+
+session = requests.Session()
+session.headers.update(HEADERS)
 
 
 def log_user_search(search_text):
@@ -43,27 +55,66 @@ def log_user_search(search_text):
         print("⚠️ Failed to log user search:", e)
 
 
-def search_duckduckgo(identifier):
+def duckduckgo_search(query, site=None, max_results=MAX_RESULTS):
+    """بحث في DuckDuckGo وإرجاع روابط"""
+    search_query = f"{query} site:{site}" if site else query
+    url = "https://html.duckduckgo.com/html/"
+    params = {"q": search_query}
+
+    links = []
+
+    for attempt in range(MAX_RETRIES):
+        try:
+            resp = session.get(url, params=params, timeout=20)
+            if resp.status_code == 200:
+                soup = BeautifulSoup(resp.text, "html.parser")
+                anchors = soup.select("a.result__a")
+                if not anchors:
+                    anchors = soup.find_all("a")
+                for a in anchors:
+                    href = a.get("href")
+                    link = None
+                    if href:
+                        if "uddg=" in href:
+                            m = urllib.parse.parse_qs(urllib.parse.urlparse(href).query).get("uddg")
+                            if m:
+                                link = urllib.parse.unquote(m[0])
+                        else:
+                            link = href
+
+                    if link and link.startswith("http") and "duckduckgo.com" not in link and link not in links:
+                        links.append(link)
+                    if len(links) >= max_results:
+                        break
+                return links
+            elif resp.status_code in (202, 429):
+                wait = (attempt + 1) * 3
+                print(f"⚠️ DuckDuckGo {resp.status_code}, retrying in {wait}s")
+                time.sleep(wait)
+                continue
+            else:
+                print(f"❌ DuckDuckGo returned status: {resp.status_code}")
+                break
+        except Exception as e:
+            print("⚠️ DuckDuckGo request error:", e)
+            time.sleep(1)
+    return links
+
+
+def search_identifier(identifier):
     results_total = []
 
     for platform_name, domain in PLATFORMS.items():
-        query = f"{identifier} site:{domain}"
         print(f"🔍 Searching {platform_name}...")
-
         try:
-            results = ddg(query, max_results=MAX_RESULTS) or []
-            count = len(results)
+            links = duckduckgo_search(identifier, site=domain)
+            count = len(links)
             print(f"✅ {platform_name}: {count}/{MAX_RESULTS}")
-
-            for r in results:
-                link = r.get("href") or r.get("url")
-                if link:
-                    print(f"   {link}")
-                    results_total.append({"platform": platform_name, "link": link})
-
+            for link in links:
+                print(f"   {link}")
+                results_total.append({"platform": platform_name, "link": link})
         except Exception as e:
             print(f"⚠️ Error searching {platform_name}: {e}")
-
         time.sleep(REQUEST_DELAY)
 
     return results_total
@@ -77,7 +128,7 @@ def main():
             continue
 
         log_user_search(identifier)
-        search_duckduckgo(identifier)
+        search_identifier(identifier)
 
         again = input("\n[?] Do you want to search again? (yes/no): ").strip().lower()
         if again not in ("yes", "y"):
