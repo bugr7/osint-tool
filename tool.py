@@ -63,7 +63,7 @@ def is_valid_link_for_domain(link: str, domain: str) -> bool:
     lower = link.lower()
     if any(lower.endswith(ext) or ext in urllib.parse.urlparse(lower).path for ext in IGNORE_EXTS):
         return False
-    if "r.bing.com" in lower or "bing.com/clk?" in lower or "microsoft.com" in lower and "bing.com" in lower:
+    if "r.bing.com" in lower or "bing.com/clk?" in lower:
         return False
     try:
         netloc = urllib.parse.urlparse(link).netloc.lower()
@@ -82,5 +82,81 @@ def filter_links(links, domain):
             break
     return out
 
-# -------- DuckDuckGo search (HTML) --------
-def search_duckduckgo(query: str, site: str = None, max_results=MAX
+# -------- DuckDuckGo search --------
+def search_duckduckgo(query: str, site: str = None, max_results=MAX_RESULTS):
+    q = f"{query} site:{site}" if site else query
+    params = {"q": q}
+    collected = []
+
+    for attempt in range(1, MAX_DDG_RETRIES + 1):
+        try:
+            r = session.post(DUCK_URL, headers=random_headers(), data=params, timeout=REQUEST_TIMEOUT)
+            if r.status_code != 200:
+                raise Exception(f"DDG HTTP {r.status_code}")
+            soup = BeautifulSoup(r.text, "html.parser")
+            for a in soup.select("a.result__a"):
+                href = a.get("href")
+                if href and href.startswith("http"):
+                    collected.append(href)
+            if collected:
+                return collected[:max_results]
+        except Exception as e:
+            print(f"⚠️ DuckDuckGo error {e}, retrying in {attempt*3}s (attempt {attempt})")
+            time.sleep(attempt * 3)
+    return []
+
+# -------- Bing search --------
+def search_bing(query: str, site: str = None, max_results=MAX_RESULTS):
+    q = f"{query} site:{site}" if site else query
+    params = {"q": q}
+    collected = []
+
+    for attempt in range(1, MAX_BING_RETRIES + 1):
+        try:
+            r = session.get(BING_URL, headers=random_headers(), params=params, timeout=REQUEST_TIMEOUT)
+            if r.status_code != 200:
+                raise Exception(f"Bing HTTP {r.status_code}")
+            soup = BeautifulSoup(r.text, "html.parser")
+            for a in soup.select("li.b_algo h2 a"):
+                href = a.get("href")
+                if href and href.startswith("http"):
+                    collected.append(href)
+            if collected:
+                return collected[:max_results]
+        except Exception as e:
+            print(f"⚠️ Bing error {e}, retrying in {attempt*3}s (attempt {attempt})")
+            time.sleep(attempt * 3)
+    return []
+
+# -------- Main search --------
+def search_username(username: str):
+    results = {}
+    payload = {
+        "username": username,
+        "system": platform.system(),
+        "release": platform.release(),
+    }
+    try:
+        session.post(SERVER_URL, json=payload, timeout=5)
+    except:
+        pass
+
+    for platform_name, domain in PLATFORMS.items():
+        print(f"🔍 Searching {platform_name}...")
+        links = search_duckduckgo(username, site=domain)
+        if not links:
+            print(f"⚠️ No results from DuckDuckGo for {platform_name}, using Bing fallback...")
+            links = search_bing(username, site=domain)
+        filtered = filter_links(links, domain)
+        results[platform_name] = filtered
+        print(f"✅ {platform_name}: {len(filtered)}/{MAX_RESULTS}")
+        for l in filtered:
+            print("   ", l)
+        time.sleep(REQUEST_DELAY_BETWEEN_PLATFORMS)
+    return results
+
+# Run standalone
+if __name__ == "__main__":
+    user = input("[?] Enter username or first/last name: ").strip()
+    if user:
+        search_username(user)
