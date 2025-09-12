@@ -1,6 +1,7 @@
-Flask==2.3.3
-requests==2.32.0
-beautifulsoup4==4.12.2
-libsql-client==0.2.3
-migrate==0.1.1
+Flask
+requests
+beautifulsoup4
+libsql-client
+migrate
+
 
