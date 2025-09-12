@@ -79,22 +79,13 @@ def search_yahoo(query: str, site: str):
         soup = BeautifulSoup(r.text, "html.parser")
         links = []
 
-        # تجربة عدة selectors لياهو
-        # أولاً: العناصر العادية التي تمثل النتائج
-        # غالباً تلاقيها داخل <div class="Sr"> <a href="...">
-        for a in soup.select("div.Sr a"):
-            href = a.get("href")
-            if href and href.startswith("http"):
+        # نجيب جميع الروابط من الصفحة
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            if href.startswith("http"):
                 links.append(href)
 
-        # إذا ما لقيتش نتيجة، نجرب selector آخر
-        if not links:
-            for a in soup.select("h3.title a"):
-                href = a.get("href")
-                if href and href.startswith("http"):
-                    links.append(href)
-
-        # فلترة حسب الدومين
+        # فلترة فقط روابط الدومين المطلوب
         filtered = filter_links(links, site)
         return filtered
 
@@ -144,4 +135,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
