@@ -4,10 +4,8 @@ from colorama import Fore, init, Style
 import platform
 import time
 
-# تفعيل الألوان
 init(autoreset=True)
 
-# ===== المنصات =====
 PLATFORMS = {
     "Facebook": "facebook.com",
     "Instagram": "instagram.com",
@@ -20,15 +18,15 @@ PLATFORMS = {
     "LinkedIn": "linkedin.com",
 }
 
-REQUEST_DELAY = 0.5  # تأخير بين المنصات باش ما يبانش spam
+REQUEST_DELAY = 0.5
 
-# ===== دالة البحث في Bing =====
 def search_bing(query, domain):
     url = f"https://www.bing.com/search?q={query.replace(' ', '+')}+site:{domain}"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                       "AppleWebKit/537.36 (KHTML, like Gecko) "
-                      "Chrome/122.0.0.0 Safari/537.36"
+                      "Chrome/122.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9"
     }
     response = requests.get(url, headers=headers)
 
@@ -38,15 +36,15 @@ def search_bing(query, domain):
     soup = BeautifulSoup(response.text, "html.parser")
     results = []
 
-    for item in soup.select("li.b_algo h2 a"):
+    # Bing عادة يستعمل هذو selectors
+    for item in soup.select("h2 a, div.b_title h2 a"):
         link = item.get("href")
-        if link and domain in link:
+        if link and domain in link and link not in results:
             results.append(link)
 
     return results
 
 
-# ===== تشغيل الفحص =====
 def run_checks(identifier):
     for platform, domain in PLATFORMS.items():
         print(Fore.YELLOW + f"\n🔍 Searching {platform}...")
@@ -62,7 +60,6 @@ def run_checks(identifier):
         time.sleep(REQUEST_DELAY)
 
 
-# ===== الدالة الرئيسية =====
 def main():
     print(Fore.GREEN + """
  /$$$$$$$                                   /$$$$$$$$
