@@ -3,11 +3,9 @@ from flask import Flask, request, jsonify
 from libsql_client import create_client_sync
 from migrate import migrate
 import os
-import time
 
 app = Flask(__name__)
 
-# ===== إعداد Turso عبر Railway Variables =====
 DATABASE_URL = os.getenv("DATABASE_URL")
 AUTH_TOKEN = os.getenv("AUTH_TOKEN")
 
@@ -18,7 +16,6 @@ try:
 except Exception as e:
     print("⚠️ Turso init failed:", e)
 
-# إنشاء جدول users_log إذا لم يكن موجود
 if client:
     try:
         client.execute("""
@@ -39,22 +36,22 @@ if client:
 @app.route("/log_search", methods=["POST"])
 def log_search():
     data = request.get_json(silent=True) or {}
-    username = data.get("username", "unknown")
-    os_info = data.get("os", "unknown")
-    country = data.get("country", "Unknown")
-    ip = data.get("ip", "0.0.0.0")
-    search_text = data.get("search", "")
-
-    if client:
-        try:
+    try:
+        if client:
             client.execute(
                 "INSERT INTO users_log (username, os, country, ip, search) VALUES (?, ?, ?, ?, ?)",
-                (username, os_info, country, ip, search_text)
+                (
+                    data.get("username", "Unknown"),
+                    data.get("os", "Unknown"),
+                    data.get("country", "Unknown"),
+                    data.get("ip", "0.0.0.0"),
+                    data.get("search", ""),
+                )
             )
-        except Exception as e:
-            print("⚠️ Failed to insert log:", e)
-
-    return jsonify({"status": "ok"})
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        print("DB insert error:", e)
+        return jsonify({"status": "error", "error": str(e)})
 
 
 if __name__ == "__main__":
