@@ -1,5 +1,4 @@
 Flask
 requests
-ddg3
+beautifulsoup4
 libsql-client
-
