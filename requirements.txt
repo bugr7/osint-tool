@@ -1,6 +1,5 @@
 flask
 requests
-python-dotenv
 colorama
-beautifulsoup4
 libsql-client
+migrate
