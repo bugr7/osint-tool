@@ -20,7 +20,7 @@ PLATFORMS = {
 
 REQUEST_DELAY = 0.5
 
-def search_bing(query, domain):
+def search_bing(query, domain, debug=False):
     url = f"https://www.bing.com/search?q={query.replace(' ', '+')}+site:{domain}"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -30,14 +30,19 @@ def search_bing(query, domain):
     }
     response = requests.get(url, headers=headers)
 
+    if debug:
+        with open("bing_debug.html", "w", encoding="utf-8") as f:
+            f.write(response.text)
+        print(Fore.MAGENTA + f"[DEBUG] Saved Bing response to bing_debug.html (status {response.status_code})")
+
     if response.status_code != 200:
         return []
 
     soup = BeautifulSoup(response.text, "html.parser")
     results = []
 
-    # Bing عادة يستعمل هذو selectors
-    for item in soup.select("h2 a, div.b_title h2 a"):
+    # جلب الروابط من h2 -> a
+    for item in soup.select("li.b_algo h2 a, h2 a, div.b_title h2 a"):
         link = item.get("href")
         if link and domain in link and link not in results:
             results.append(link)
@@ -45,10 +50,10 @@ def search_bing(query, domain):
     return results
 
 
-def run_checks(identifier):
+def run_checks(identifier, debug=False):
     for platform, domain in PLATFORMS.items():
         print(Fore.YELLOW + f"\n🔍 Searching {platform}...")
-        results = search_bing(identifier, domain)
+        results = search_bing(identifier, domain, debug=debug)
 
         if not results:
             print(Fore.RED + f"⚠️ No results from Bing for {platform}")
@@ -78,7 +83,7 @@ def main():
 
     identifier = input(Fore.YELLOW + "[?] Enter username or first/last name: ").strip()
     if identifier:
-        run_checks(identifier)
+        run_checks(identifier, debug=True)  # ✅ شغلت Debug Mode هنا
     else:
         print(Fore.RED + "⚠️ No input provided")
 
