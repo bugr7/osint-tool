@@ -1,51 +1,67 @@
 # tool.py
-import requests
-from colorama import Fore, Style, init
+import os
 import platform
 import time
+from colorama import Fore, Back, init, Style
+import requests
 
 init(autoreset=True)
 
-SERVER_URL = "https://osint-tool-production.up.railway.app/search"  # ضع هنا رابط سيرفرك على Railway
+# ===== إعداد API URL =====
+API_URL = os.getenv("API_URL", "https://osint-tool-production.up.railway.app/search")
 
-PLATFORMS = [
-    "Facebook", "Instagram", "Youtube", "TikTok",
-    "Snapchat", "Reddit", "Twitter", "Pinterest", "LinkedIn"
-]
+PLATFORMS = {
+    "Facebook": ("facebook.com", Back.BLUE),
+    "Instagram": ("instagram.com", Back.MAGENTA),
+    "Youtube": ("youtube.com", Back.RED),
+    "TikTok": ("tiktok.com", Back.CYAN),
+    "Snapchat": ("snapchat.com", Back.YELLOW),
+    "Reddit": ("reddit.com", Back.LIGHTRED_EX),
+    "Twitter": ("twitter.com", Back.LIGHTBLUE_EX),
+    "Pinterest": ("pinterest.com", Back.LIGHTMAGENTA_EX),
+    "LinkedIn": ("linkedin.com", Back.LIGHTCYAN_EX),
+}
 
-def fetch_results(identifier):
-    payload = {"identifier": identifier}
+REQUEST_DELAY = 0.3
+
+def search_via_api(identifier):
     try:
-        resp = requests.post(SERVER_URL, json=payload, timeout=30)
-        if resp.status_code == 200:
-            data = resp.json()
-            results_by_platform = {p: [] for p in PLATFORMS}
-            for item in data:
-                platform_name = item.get("platform")
-                link = item.get("link")
-                if platform_name in results_by_platform:
-                    results_by_platform[platform_name].append(link)
-            return results_by_platform
+        response = requests.post(API_URL, json={"identifier": identifier}, timeout=30)
+        if response.status_code == 200:
+            return response.json()
         else:
-            print(Fore.RED + f"[!] Server returned status {resp.status_code}")
-            return {p: [] for p in PLATFORMS}
+            print(Fore.RED + f"[!] API returned status {response.status_code}", flush=True)
+            print(f"API text: {response.text[:300]}")
+            return []
     except Exception as e:
-        print(Fore.RED + f"[!] API request failed: {e}")
-        return {p: [] for p in PLATFORMS}
+        print(Fore.RED + f"[!] API request failed: {e}", flush=True)
+        return []
 
-def display_results(results):
-    for platform_name, links in results.items():
-        count = len(links)
-        print(Fore.YELLOW + f"🔍 {platform_name} - {count}/10")
-        if links:
-            for link in links[:10]:
-                print(Fore.CYAN + f"   {link}")
+def print_platform_frame(platform_name, links, color_bg):
+    header = f"{platform_name} - {len(links)}/10"
+    top = "╭─ " + header + " ─╮"
+    bottom = "╰" + "─" * (len(top) - 2) + "╯"
+    print(color_bg + Fore.WHITE + top + Style.RESET_ALL, flush=True)
+    if links:
+        for link in links[:10]:
+            print(Fore.CYAN + f"   {link}", flush=True)
+    else:
+        print(Fore.RED + "   No results found.", flush=True)
+    print(color_bg + Fore.WHITE + bottom + Style.RESET_ALL, flush=True)
+    print(flush=True)
+
+def ask_yes_no(question, color=Fore.YELLOW):
+    while True:
+        answer = input(color + question + " (yes/no): " + Style.RESET_ALL).strip().lower()
+        if answer in ("yes", "y"):
+            return True
+        elif answer in ("no", "n"):
+            return False
         else:
-            print(Fore.RED + "   No results found.")
-        print(Fore.MAGENTA + "-"*50)
+            print(Fore.RED + "[!] Invalid input. Please answer 'yes' or 'no'.")
 
 def main():
-    print(Fore.GREEN + """
+    ascii_art = r"""
  /$$$$$$$                                   /$$$$$$$$
 | $$__  $$                                 |_____ $$/ 
 | $$  \ $$ /$$   /$$  /$$$$$$         /$$$$$$   /$$/  
@@ -57,31 +73,39 @@ def main():
                      /$$  \ $$                        
                     |  $$$$$$/                        
                      \______/                         
-""" + Fore.RED + "OSINT Tool - Server API version 0.1" + Fore.GREEN + "\n")
+"""
+    print(Fore.GREEN + ascii_art + Fore.RED + "OSINT Tool - API Mode v2.0" + Fore.GREEN + "\n", flush=True)
+    print(Fore.WHITE + "🔎 Platforms covered: Facebook, Instagram, Youtube, TikTok, Snapchat, Reddit, Twitter, Pinterest, LinkedIn\n", flush=True)
+
+    try:
+        ip = requests.get("https://api64.ipify.org?format=json", timeout=15).json().get("ip", "Unknown")
+        country = requests.get(f"https://ipapi.co/{ip}/json/", timeout=15).json().get("country_name", "Unknown")
+    except Exception:
+        ip, country = "Unknown", "Unknown"
+
+    username = platform.node()
+    os_name = platform.system() + " " + platform.release()
 
     while True:
         identifier = input(Fore.CYAN + "[?] Enter username or firstname and lastname: " + Style.RESET_ALL).strip()
         if not identifier:
-            print(Fore.RED + "[!] No input provided.")
+            print(Fore.RED + "[!] No input provided.", flush=True)
             continue
 
-        while True:
-            confirm = input(Fore.YELLOW + "[?] Do you have permission to search this account? (yes/no): ").strip().lower()
-            if confirm in ("yes", "y"):
-                break
-            elif confirm in ("no", "n"):
-                print(Fore.RED + "[!] Permission not confirmed. Exiting.")
-                return
-            else:
-                print(Fore.RED + "[!] Invalid input. Please answer 'yes' or 'no'.")
+        if not ask_yes_no("[?] Do you have permission to search this account?"):
+            print(Fore.RED + "[!] Permission not confirmed. Exiting.", flush=True)
+            continue
 
-        print(Fore.MAGENTA + f"\n🔍 Searching for: {identifier}\n")
-        results = fetch_results(identifier)
-        display_results(results)
+        api_results = search_via_api(identifier)
+        print(Fore.GREEN + f"[✔] Fetched {len(api_results)} results from API.", flush=True)
 
-        again = input(Fore.MAGENTA + "\n[?] Do you want to search again? (yes/no): ").strip().lower()
-        if again not in ("yes", "y"):
-            print(Fore.GREEN + "\n[✔] Exiting OSINT tool. Bye 👋")
+        for platform_name, (domain, color_bg) in PLATFORMS.items():
+            links = [r["link"] for r in api_results if r.get("platform") == platform_name]
+            print_platform_frame(platform_name, links, color_bg)
+            time.sleep(REQUEST_DELAY)
+
+        if not ask_yes_no("\n[?] Do you want to search again?"):
+            print(Fore.GREEN + "\n[✔] Exiting OSINT tool. Bye 👋", flush=True)
             break
 
 if __name__ == "__main__":
