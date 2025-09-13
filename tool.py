@@ -19,13 +19,13 @@ banner = r"""
 |__/  |__/ \______/ |__/      |__/    \_______/|__/
 """
 print(Fore.GREEN + banner)
-print(Fore.RED + "[*] أداة البحث DuckDuckGo OSINT" + Fore.GREEN + "\n")
+print(Fore.RED + "[*] أداة البحث OSINT مع تحسينات Session + بدائل للمنصات الصعبة" + Fore.GREEN + "\n")
 
 # ====== منصات رئيسية ======
 PLATFORMS = {
     "Facebook": "facebook.com",
     "Instagram": "instagram.com",
-    "Youtube": "youtube.com",
+    "YouTube": "youtube.com",
     "TikTok": "tiktok.com",
     "Snapchat": "snapchat.com",
     "Reddit": "reddit.com",
@@ -34,18 +34,21 @@ PLATFORMS = {
     "LinkedIn": "linkedin.com",
 }
 
-REQUEST_DELAY = 1.0  # ثانية بين كل بحث
+REQUEST_DELAY = 2.0  # ثانية بين كل طلب لمنع الحجب
 
-# ====== دالة البحث عبر DuckDuckGo ======
+# ====== إنشاء Session ثابت ======
+session = requests.Session()
+session.headers.update({"User-Agent": "Mozilla/5.0"})
+
+# ====== دالة البحث عبر DuckDuckGo HTML ======
 def search_ddg(query, site=None, max_results=5):
     search_query = f"{query} site:{site}" if site else query
     url = "https://html.duckduckgo.com/html/"
-    headers = {"User-Agent": "Mozilla/5.0"}
     data = {"q": search_query}
     results = []
 
     try:
-        response = requests.post(url, headers=headers, data=data, timeout=15)
+        response = session.post(url, headers=session.headers, data=data, timeout=15)
         soup = BeautifulSoup(response.text, "html.parser")
         links = soup.select(".result__a")[:max_results]
         for a in links:
@@ -56,6 +59,19 @@ def search_ddg(query, site=None, max_results=5):
         print(Fore.RED + f"[!] خطأ أثناء البحث: {e}")
     return results
 
+# ====== دالة بدائل للمنصات الصعبة ======
+def alternative_links(query, platform_name):
+    # أمثلة بدائل بسيطة
+    if platform_name == "Twitter":
+        return search_ddg(query, site="nitter.net")
+    if platform_name == "Reddit":
+        return search_ddg(query, site="old.reddit.com")
+    if platform_name == "LinkedIn":
+        return search_ddg(query, site="linkedin.com")
+    if platform_name == "Pinterest":
+        return search_ddg(query, site="pinterest.com")
+    return []
+
 # ====== عرض النتائج ======
 def run_checks(identifier):
     print(Fore.MAGENTA + "\n" + "="*60)
@@ -64,7 +80,12 @@ def run_checks(identifier):
 
     for platform_name, domain in PLATFORMS.items():
         print(Fore.YELLOW + f"🔍 البحث في {platform_name}...")
+        # البحث الأساسي
         links = search_ddg(identifier, site=domain, max_results=5)
+        # إذا المنصة صعبة ولا نتائج → استخدم البدائل
+        if not links and platform_name in ["Twitter", "Reddit", "LinkedIn", "Pinterest"]:
+            links = alternative_links(identifier, platform_name)
+
         count = len(links)
         print(Fore.GREEN + f"✅ {platform_name}: {count}/5 نتائج")
 
