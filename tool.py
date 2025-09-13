@@ -5,7 +5,7 @@ import time
 from colorama import Fore, init, Style
 from libsql_client import create_client_sync
 from migrate import migrate
-from ddgs import DDGS
+from duckduckgo_search import DDGS
 
 init(autoreset=True)
 
