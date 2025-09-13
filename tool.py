@@ -1,43 +1,15 @@
-# osint_tool_ddg.py
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
-import platform
-import time
-from colorama import Fore, init, Style
-from libsql_client import create_client_sync
-from migrate import migrate
-from duckduckgo_search import DDGS
+import requests
+from bs4 import BeautifulSoup
+from colorama import Fore, init
 
+# ===== تهيئة الألوان =====
 init(autoreset=True)
 
-# ===== إعداد Turso =====
-DATABASE_URL = "https://search-osmoh.aws-eu-west-1.turso.io"  
-AUTH_TOKEN = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3NTc0MjkxNzEsImlkIjoiMGMwODllMjUtN2RiMC00Y2I1LWJhMDAtYWI1NTgxZjNjYjAxIiwicmlkIjoiYTM2YjJhZGQtNTU5NC00NDUxLThiY2EtZWRkNDgwZjI2ZWM0In0.4EdUBRRTA1uYTdGWnOP4jwnuFPZ6IrzuCBlzBdWtb31qw7B9vIX7rsiRZEUA6-Bf8hgcA-LaEkpPcl-r-csjCg"
-
-client = create_client_sync(url=DATABASE_URL, auth_token=AUTH_TOKEN)
-migrate(client)
-
-# ===== دالة البحث =====
-def search_ddg(query, max_results=10):
-    results = []
-    with DDGS() as ddgs:
-        for r in ddgs.text(query, max_results=max_results):
-            results.append(r)
-    return results
-
-# ===== دالة الحفظ في قاعدة البيانات =====
-def save_results(query, results):
-    for r in results:
-        try:
-            client.execute(
-                "INSERT INTO searches (query, title, link, snippet, created_at) VALUES (?, ?, ?, ?, datetime('now'))",
-                [query, r.get("title"), r.get("href"), r.get("body"),],
-            )
-        except Exception as e:
-            print(Fore.RED + f"[!] خطأ في الحفظ: {e}")
-
-# ===== البرنامج الرئيسي =====
-def main():
-    print(Fore.GREEN + """
+# ===== شعار الأداة =====
+banner = r"""
  /$$$$$$$                                   /$$$$$$$$
 | $$__  $$                                 |_____ $$/
 | $$  \ $$ /$$   /$$  /$$$$$$         /$$$$$$   /$$/ 
@@ -46,32 +18,45 @@ def main():
 | $$  \ $$| $$  | $$| $$       /$$    /$$__  $$| $$   
 | $$  | $$|  $$$$$$/| $$      | $$   |  $$$$$$$| $$   
 |__/  |__/ \______/ |__/      |__/    \_______/|__/   
-    """)
-    print(Style.BRIGHT + Fore.CYAN + "[*] أداة البحث DuckDuckGo OSINT")
+"""
+print(banner)
+print(Fore.CYAN + "[*] أداة البحث DuckDuckGo OSINT\n")
 
+# ===== دالة البحث =====
+def search_ddg(query, max_results=5):
+    url = "https://html.duckduckgo.com/html/"
+    params = {"q": query}
+    headers = {"User-Agent": "Mozilla/5.0"}
+    
+    response = requests.post(url, data=params, headers=headers, timeout=15)
+    soup = BeautifulSoup(response.text, "html.parser")
+
+    results = []
+    for a in soup.select(".result__a")[:max_results]:
+        title = a.get_text()
+        link = a.get("href")
+        results.append({"title": title, "href": link})
+    return results
+
+# ===== البرنامج الرئيسي =====
+def main():
     while True:
-        query = input(Fore.YELLOW + "\n[?] أدخل كلمة البحث (أو اكتب exit للخروج): ").strip()
+        query = input(Fore.YELLOW + "[?] أدخل كلمة البحث (أو اكتب exit للخروج): ").strip()
         if query.lower() == "exit":
-            print(Fore.CYAN + "[*] تم إنهاء البرنامج.")
+            print(Fore.GREEN + "[+] تم الخروج من الأداة.")
             break
 
         print(Fore.CYAN + f"[+] جاري البحث عن: {query}")
-        results = search_ddg(query, max_results=5)
-
-        if not results:
-            print(Fore.RED + "[!] لم يتم العثور على نتائج.")
-            continue
-
-        print(Fore.GREEN + f"[+] النتائج ({len(results)}):\n")
-        for i, r in enumerate(results, start=1):
-            print(Fore.MAGENTA + f"{i}. {r.get('title')}")
-            print(Fore.WHITE + f"   الرابط: {r.get('href')}")
-            print(Fore.LIGHTBLACK_EX + f"   الوصف: {r.get('body')}\n")
-
-        save_results(query, results)
-        print(Fore.CYAN + "[*] تم حفظ النتائج في قاعدة البيانات.")
-
-        time.sleep(1)
+        try:
+            results = search_ddg(query, max_results=5)
+            if not results:
+                print(Fore.RED + "[!] لا توجد نتائج.")
+            else:
+                for idx, r in enumerate(results, 1):
+                    print(Fore.GREEN + f"{idx}. {r['title']}")
+                    print(Fore.CYAN + f"    {r['href']}")
+        except Exception as e:
+            print(Fore.RED + f"[!] حدث خطأ: {e}")
 
 if __name__ == "__main__":
     main()
