@@ -1,5 +1,6 @@
 import requests
 from bs4 import BeautifulSoup
+import urllib.parse
 
 def ddg_search(query, platform, limit=5):
     headers = {
@@ -17,11 +18,15 @@ def ddg_search(query, platform, limit=5):
     soup = BeautifulSoup(response.text, "html.parser")
     results = []
 
-    # DuckDuckGo يضع النتائج داخل div.result__body > a.result__a
     for a in soup.select("a.result__a"):
         href = a.get("href")
-        if href and platform in href:
-            results.append(href)
+        if href and "uddg=" in href:
+            # نفك الرابط الأصلي من الوسيط "uddg"
+            parsed = urllib.parse.parse_qs(urllib.parse.urlparse(href).query)
+            if "uddg" in parsed:
+                real_url = parsed["uddg"][0]
+                if platform in real_url:
+                    results.append(real_url)
         if len(results) >= limit:
             break
 
@@ -29,7 +34,7 @@ def ddg_search(query, platform, limit=5):
 
 
 def osint_tool(name_or_username):
-    platforms = ["youtube", "tiktok", "reddit", "linkedin"]
+    platforms = ["youtube", "tiktok", "reddit", "linkedin", "facebook", "instagram"]
 
     for p in platforms:
         print(f"\n🔎 البحث في {p.capitalize()}...")
