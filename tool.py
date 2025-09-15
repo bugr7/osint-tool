@@ -1,108 +1,69 @@
-# osint_tool_final.py
 import requests
-import json
-import csv
+from bs4 import BeautifulSoup
+import urllib.parse
 import time
-from urllib.parse import quote
+import random
 
-# ===== إعدادات المنصات =====
-PLATFORMS = {
-    "YOUTUBE": "site:youtube.com",
-    "TIKTOK": "site:tiktok.com",
-    "REDDIT": "site:reddit.com",
-    "LINKEDIN": "site:linkedin.com",
-    "FACEBOOK": "site:facebook.com",
-    "INSTAGRAM": "site:instagram.com"
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Firefox/118.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Safari/605.1.15",
+]
+
+def ddg_search(query, platform, limit=5, retries=3):
+    url = f"https://html.duckduckgo.com/html/?q={query}+site:{platform}.com"
+
+    for attempt in range(retries):
+        headers = {"User-Agent": random.choice(USER_AGENTS)}
+        response = requests.get(url, headers=headers, timeout=10)
+
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, "html.parser")
+            results = []
+
+            for a in soup.select("a.result__a"):
+                href = a.get("href")
+                if href and "uddg=" in href:
+                    parsed = urllib.parse.parse_qs(urllib.parse.urlparse(href).query)
+                    if "uddg" in parsed:
+                        real_url = parsed["uddg"][0]
+                        if platform in real_url:
+                            results.append(real_url)
+                if len(results) >= limit:
+                    break
+            return results
+
+        elif response.status_code == 202:
+            print(f"[!] DuckDuckGo حظر مؤقت (202) - محاولة {attempt+1}/{retries}...")
+            time.sleep(random.uniform(3, 6))  # انتظر شوية وجرب ثاني
+        else:
+            print(f"[!] خطأ في DuckDuckGo: {response.status_code}")
+            break
+
+    return []
+
+
+def osint_tool(name_or_username):
+    platforms = {
+    "youtube": ["youtube.com", "youtu.be"],
+    "tiktok": ["tiktok.com"],
+    "reddit": ["reddit.com"],
+    "linkedin": ["linkedin.com"],
+    "facebook": ["facebook.com", "fb.com"],
+    "instagram": ["instagram.com"]
 }
 
-# ===== دوال البحث =====
-def search_bing(query, limit=10):
-    """بحث في Bing"""
-    url = f"https://www.bing.com/search?q={quote(query)}"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    results = []
-    try:
-        r = requests.get(url, headers=headers, timeout=10)
-        if r.status_code == 200:
-            links = [line.split('"')[0] for line in r.text.split("href=\"")[1:]]
-            for link in links:
-                if link.startswith("http") and not link.startswith("https://go.microsoft.com"):
-                    results.append(link)
-                if len(results) >= limit:
-                    break
-    except Exception as e:
-        print(f"[!] خطأ في Bing: {e}")
-    return results
-
-def search_duckduckgo(query, limit=10):
-    """بحث في DuckDuckGo"""
-    url = f"https://duckduckgo.com/html/?q={quote(query)}"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    results = []
-    try:
-        r = requests.get(url, headers=headers, timeout=10)
-        if r.status_code == 200:
-            links = [line.split('"')[0] for line in r.text.split("uddg=")[1:]]
-            for link in links:
-                if link.startswith("http"):
-                    results.append(link)
-                if len(results) >= limit:
-                    break
-    except Exception as e:
-        print(f"[!] خطأ في DuckDuckGo: {e}")
-    return results
-
-def clean_links(links, domain):
-    """فلترة الروابط لتخص المنصة فقط"""
-    return [l for l in links if domain in l]
-
-# ===== البرنامج الرئيسي =====
-def main():
-    query = input("[?] أدخل اسم المستخدم أو الاسم الكامل: ").strip()
-    all_results = {}
-
-    for platform, site in PLATFORMS.items():
-        print(f"\n🔎 جارٍ البحث في {platform} ...")
-        q = f"{query} {site}"
-
-        # جرب Bing أولاً
-        results = search_bing(q, limit=15)
-
-        # لو فارغة جرب DuckDuckGo
-        if not results:
-            results = search_duckduckgo(q, limit=15)
-
-        # فلترة الروابط
-        results = clean_links(results, site.replace("site:", ""))[:10]
-
+    for p in platforms:
+        print(f"\n🔎 البحث في {p.capitalize()}...")
+        results = ddg_search(name_or_username, p)
         if results:
-            for link in results:
-                print(f"👉 {link}")
+            for r in results:
+                print("👉", r)
         else:
             print("❌ لا توجد نتائج.")
+        time.sleep(random.uniform(2, 4))  # تأخير بسيط بين كل منصة
 
-        all_results[platform] = results
-
-        time.sleep(2)  # تأخير بسيط لتفادي البلوك
-
-    # ===== حفظ النتائج =====
-    with open("results.txt", "w", encoding="utf-8") as f:
-        for platform, links in all_results.items():
-            f.write(f"\n{platform}:\n")
-            for link in links:
-                f.write(link + "\n")
-
-    with open("results.csv", "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["Platform", "Link"])
-        for platform, links in all_results.items():
-            for link in links:
-                writer.writerow([platform, link])
-
-    with open("results.json", "w", encoding="utf-8") as f:
-        json.dump(all_results, f, indent=4, ensure_ascii=False)
-
-    print("\n✅ النتائج حفظت في results.txt و results.csv و results.json")
 
 if __name__ == "__main__":
-    main()
+    query = input("[?] أدخل الاسم واللقب أو اسم المستخدم: ")
+    osint_tool(query)
