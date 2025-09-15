@@ -1,18 +1,24 @@
 #!/usr/bin/env python3
 # tool.py
-# OSINT simple scraper using Bing + requests + bs4
-# Supports: youtube, tiktok, reddit, linkedin, facebook, instagram
+# OSINT scraper using Bing + cloudscraper (fallback requests) + bs4
+# Platforms: youtube, tiktok, reddit, linkedin, facebook, instagram
 # Saves results to results.txt and results.csv
-# Usage: python tool.py
 
-import requests
-from bs4 import BeautifulSoup
+import os
+import sys
 import time
 import random
 import csv
-import os
-import sys
 from urllib.parse import urlparse, parse_qs, urlunparse
+from bs4 import BeautifulSoup
+
+# try to use cloudscraper (better for bypassing some protections)
+try:
+    import cloudscraper
+    SCRAPER_LIB = "cloudscraper"
+except Exception:
+    import requests
+    SCRAPER_LIB = "requests"
 
 # ----------------- config -----------------
 PLATFORMS = {
@@ -28,7 +34,6 @@ REQUEST_TIMEOUT = 12
 MAX_RETRIES = 2
 MIN_DELAY = 1.2
 MAX_DELAY = 3.0
-# Optional proxies via env var PROXY (format http://IP:PORT or socks5://IP:PORT)
 PROXY = os.environ.get("PROXY")  # e.g. "http://51.79.50.22:9300"
 # ------------------------------------------
 
@@ -39,11 +44,6 @@ USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:115.0) Gecko/20100101 Firefox/115.0",
 ]
 
-session = requests.Session()
-if PROXY:
-    session.proxies.update({"http": PROXY, "https": PROXY})
-
-
 def get_headers():
     return {
         "User-Agent": random.choice(USER_AGENTS),
@@ -51,17 +51,22 @@ def get_headers():
         "Referer": "https://www.bing.com/"
     }
 
+# create session using cloudscraper if available, else requests.Session
+if SCRAPER_LIB == "cloudscraper":
+    session = cloudscraper.create_scraper()
+else:
+    session = requests.Session()
+
+if PROXY:
+    session.proxies.update({"http": PROXY, "https": PROXY})
 
 def normalize_url(u):
-    """
-    Basic normalization: remove common tracking query params like utm_*, fbclid, gclid
-    """
+    """Remove common tracking query params (utm_*, fbclid, gclid, igshid, etc.)"""
     try:
         p = urlparse(u)
         qs = parse_qs(p.query, keep_blank_values=True)
         filtered = {k: v for k, v in qs.items() if not (
             k.startswith("utm_") or k in ("fbclid", "gclid", "mc_cid", "mc_eid", "igshid", "mkt_tok"))}
-        # rebuild query string
         if filtered:
             new_query = "&".join(f"{k}={v[0]}" for k, v in filtered.items())
         else:
@@ -71,19 +76,15 @@ def normalize_url(u):
     except Exception:
         return u
 
-
 def extract_from_bing_html(html_text, platform_domains, limit):
     soup = BeautifulSoup(html_text, "html.parser")
     results = []
-    # Bing main results are usually in li.b_algo > h2 > a
     for li in soup.select("li.b_algo"):
         a = li.select_one("h2 > a[href]")
         if not a:
-            # fallback: any <a> with href inside the li
             a = li.select_one("a[href]")
         if a:
             href = a.get("href").strip()
-            # ensure it's absolute
             if not href.startswith("http"):
                 continue
             for domain in platform_domains:
@@ -96,27 +97,23 @@ def extract_from_bing_html(html_text, platform_domains, limit):
             break
     return results
 
-
 def bing_search(query, platform, limit=5):
     q = f"{query} site:{platform}.com"
-    url = f"https://www.bing.com/search?q={requests.utils.requote_uri(q)}"
+    url = f"https://www.bing.com/search?q={q.replace(' ', '+')}"
     tries = 0
     while tries <= MAX_RETRIES:
         tries += 1
         try:
             resp = session.get(url, headers=get_headers(), timeout=REQUEST_TIMEOUT)
             if resp.status_code != 200:
-                # server-side block or temp problem
-                # return empty to let caller decide
+                # temporary server issue or block
                 return []
-            res = extract_from_bing_html(resp.text, PLATFORMS[platform], limit)
-            return res
-        except requests.RequestException:
+            return extract_from_bing_html(resp.text, PLATFORMS[platform], limit)
+        except Exception:
             if tries > MAX_RETRIES:
                 return []
             time.sleep(1 + tries)
     return []
-
 
 def save_results_text(all_results, filename="results.txt"):
     with open(filename, "w", encoding="utf-8") as f:
@@ -128,7 +125,6 @@ def save_results_text(all_results, filename="results.txt"):
             for l in links:
                 f.write(l + "\n")
             f.write("\n")
-
 
 def save_results_csv(all_results, filename="results.csv"):
     rows = []
@@ -143,7 +139,6 @@ def save_results_csv(all_results, filename="results.csv"):
         w.writerow(["platform", "url"])
         w.writerows(rows)
 
-
 def osint_tool(query):
     all_results = {}
     print()
@@ -156,14 +151,11 @@ def osint_tool(query):
         else:
             print("❌ لا توجد نتائج.")
         all_results[p] = results
-        # random delay
         time.sleep(random.uniform(MIN_DELAY, MAX_DELAY))
 
-    # save
     save_results_text(all_results)
     save_results_csv(all_results)
     print("\n✅ النتائج تحفظت في results.txt و results.csv\n")
-
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
@@ -177,4 +169,5 @@ if __name__ == "__main__":
     if not query:
         print("لا شيء للدخول.")
         sys.exit(1)
+    print(f"Using scraper library: {SCRAPER_LIB}")
     osint_tool(query)
