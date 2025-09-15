@@ -1,5 +1,6 @@
 import requests
 from bs4 import BeautifulSoup
+import urllib.parse
 
 def ddg_search(query, platform, limit=5):
     headers = {
@@ -17,11 +18,21 @@ def ddg_search(query, platform, limit=5):
     soup = BeautifulSoup(response.text, "html.parser")
     results = []
 
-    # DuckDuckGo يضع النتائج داخل div.result__body > a.result__a
     for a in soup.select("a.result__a"):
         href = a.get("href")
-        if href and platform in href:
+        if not href:
+            continue
+
+        # DuckDuckGo يعطينا redirect فيه ?uddg=... → نفكك الرابط
+        if "uddg=" in href:
+            parsed = urllib.parse.urlparse(href)
+            qs = urllib.parse.parse_qs(parsed.query)
+            real_url = qs.get("uddg", [None])[0]
+            if real_url and platform in real_url:
+                results.append(real_url)
+        elif href.startswith("http") and platform in href:
             results.append(href)
+
         if len(results) >= limit:
             break
 
