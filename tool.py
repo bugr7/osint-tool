@@ -2,22 +2,28 @@ import requests
 from bs4 import BeautifulSoup
 import urllib.parse
 import time
+import random
 
-def ddg_search(query, platform, limit=5):
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                      "AppleWebKit/537.36 (KHTML, like Gecko) "
-                      "Chrome/117.0 Safari/537.36",
+def get_headers():
+    agents = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+        "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:118.0) Gecko/20100101 Firefox/118.0",
+    ]
+    return {
+        "User-Agent": random.choice(agents),
         "Accept-Language": "en-US,en;q=0.9",
         "Referer": "https://duckduckgo.com/"
     }
-    url = f"https://duckduckgo.com/html/?q={query}+site:{platform}.com"
 
-    try:
-        response = requests.get(url, headers=headers, timeout=10)
-    except requests.exceptions.RequestException as e:
-        print(f"[!] خطأ في الطلب: {e}")
-        return []
+session = requests.Session()
+
+def ddg_search(query, platform, limit=5):
+    # أول طلب باش نجيب cookies
+    session.get("https://duckduckgo.com/", headers=get_headers(), timeout=10)
+
+    url = f"https://html.duckduckgo.com/html/?q={query}+site:{platform}.com"
+    response = session.get(url, headers=get_headers(), timeout=10)
 
     if response.status_code != 200:
         print(f"[!] خطأ في DuckDuckGo: {response.status_code}")
@@ -31,7 +37,6 @@ def ddg_search(query, platform, limit=5):
         if not href:
             continue
 
-        # DuckDuckGo يعطينا redirect فيه ?uddg=... → نفكك الرابط
         if "uddg=" in href:
             parsed = urllib.parse.urlparse(href)
             qs = urllib.parse.parse_qs(parsed.query)
@@ -44,7 +49,7 @@ def ddg_search(query, platform, limit=5):
         if len(results) >= limit:
             break
 
-    time.sleep(1)  # نرتاح شوية بين كل طلب
+    time.sleep(1.5)
     return results
 
 
