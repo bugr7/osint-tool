@@ -1,24 +1,25 @@
 import requests
 from bs4 import BeautifulSoup
 
-def bing_search(query, platform, limit=5):
+def ddg_search(query, platform, limit=5):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                       "AppleWebKit/537.36 (KHTML, like Gecko) "
                       "Chrome/117.0 Safari/537.36"
     }
-    url = f"https://www.bing.com/search?q={query}+site:{platform}.com"
-    response = requests.get(url, headers=headers, timeout=10)
+    url = f"https://html.duckduckgo.com/html/?q={query}+site:{platform}.com"
 
+    response = requests.get(url, headers=headers, timeout=10)
     if response.status_code != 200:
+        print(f"[!] خطأ في DuckDuckGo: {response.status_code}")
         return []
 
     soup = BeautifulSoup(response.text, "html.parser")
     results = []
 
-    # أدق: نجيب الرابط من h2 > a
-    for item in soup.select("li.b_algo h2 a"):
-        href = item.get("href")
+    # DuckDuckGo يضع النتائج داخل div.result__body > a.result__a
+    for a in soup.select("a.result__a"):
+        href = a.get("href")
         if href and platform in href:
             results.append(href)
         if len(results) >= limit:
@@ -26,12 +27,13 @@ def bing_search(query, platform, limit=5):
 
     return results
 
+
 def osint_tool(name_or_username):
     platforms = ["youtube", "tiktok", "reddit", "linkedin"]
 
     for p in platforms:
         print(f"\n🔎 البحث في {p.capitalize()}...")
-        results = bing_search(name_or_username, p)
+        results = ddg_search(name_or_username, p)
         if results:
             for r in results:
                 print("👉", r)
