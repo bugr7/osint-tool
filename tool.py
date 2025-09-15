@@ -1,69 +1,84 @@
 import requests
 from bs4 import BeautifulSoup
-import urllib.parse
-import time
-import random
+import time, random
 
-def get_headers():
-    agents = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
-        "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:118.0) Gecko/20100101 Firefox/118.0",
-    ]
-    return {
-        "User-Agent": random.choice(agents),
-        "Accept-Language": "en-US,en;q=0.9",
-        "Referer": "https://duckduckgo.com/"
-    }
-
-session = requests.Session()
-
+# ===== DuckDuckGo Search =====
 def ddg_search(query, platform, limit=5):
-    # أول طلب باش نجيب cookies
-    session.get("https://duckduckgo.com/", headers=get_headers(), timeout=10)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/117.0 Safari/537.36"
+    }
+    url = f"https://lite.duckduckgo.com/lite/?q={query}+site:{platform}.com"
 
-    url = f"https://html.duckduckgo.com/html/?q={query}+site:{platform}.com"
-    response = session.get(url, headers=get_headers(), timeout=10)
-
+    response = requests.get(url, headers=headers, timeout=10)
     if response.status_code != 200:
         print(f"[!] خطأ في DuckDuckGo: {response.status_code}")
         return []
 
     soup = BeautifulSoup(response.text, "html.parser")
     results = []
-
-    for a in soup.select("a.result__a"):
-        href = a.get("href")
-        if not href:
-            continue
-
-        if "uddg=" in href:
-            parsed = urllib.parse.urlparse(href)
-            qs = urllib.parse.parse_qs(parsed.query)
-            real_url = qs.get("uddg", [None])[0]
-            if real_url and platform in real_url:
-                results.append(real_url)
-        elif href.startswith("http") and platform in href:
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        if platform in href and href.startswith("http"):
             results.append(href)
-
         if len(results) >= limit:
             break
 
-    time.sleep(1.5)
     return results
 
 
-def osint_tool(name_or_username):
-    platforms = ["youtube", "tiktok", "reddit", "linkedin"]
+# ===== Bing Search =====
+def bing_search(query, platform, limit=5):
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/117.0 Safari/537.36"
+    }
+    url = f"https://www.bing.com/search?q={query}+site:{platform}.com"
 
-    for p in platforms:
+    response = requests.get(url, headers=headers, timeout=10)
+    if response.status_code != 200:
+        print(f"[!] خطأ في Bing: {response.status_code}")
+        return []
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    results = []
+    for h2 in soup.find_all("h2"):
+        a = h2.find("a", href=True)
+        if a and platform in a["href"]:
+            results.append(a["href"])
+        if len(results) >= limit:
+            break
+
+    return results
+
+
+# ===== Main OSINT Tool =====
+def osint_tool(name_or_username):
+    platforms = {
+        "youtube": "ddg",
+        "tiktok": "ddg",
+        "reddit": "bing",
+        "linkedin": "bing"
+    }
+
+    for p, engine in platforms.items():
         print(f"\n🔎 البحث في {p.capitalize()}...")
-        results = ddg_search(name_or_username, p)
+
+        if engine == "ddg":
+            results = ddg_search(name_or_username, p)
+        else:
+            results = bing_search(name_or_username, p)
+
         if results:
             for r in results:
                 print("👉", r)
         else:
             print("❌ لا توجد نتائج.")
+
+        # تأخير عشوائي لتفادي الحظر
+        time.sleep(random.uniform(1.5, 3.5))
 
 
 if __name__ == "__main__":
