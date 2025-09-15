@@ -1,69 +1,139 @@
-import requests
-from bs4 import BeautifulSoup
-import urllib.parse
+# osint_tool_ddg_links_only_alpha_style.py
+
+import platform
 import time
-import random
+from colorama import Fore, init, Style
+from libsql_client import create_client_sync
+from migrate import migrate
+from ddgs import DDGS
 
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Firefox/118.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Safari/605.1.15",
-]
+init(autoreset=True)
 
-def ddg_search(query, platform, limit=5, retries=3):
-    url = f"https://html.duckduckgo.com/html/?q={query}+site:{platform}.com"
+# ===== إعداد Turso =====
+DATABASE_URL = "https://search-osmoh.aws-eu-west-1.turso.io"  
+AUTH_TOKEN = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3NTc0MjkxNzEsImlkIjoiMGMwODllMjUtN2RiMC00Y2I1LWJhMDAtYWI1NTgxZjNjYjAxIiwicmlkIjoiYTM2YjJhZGQtNTU5NC00NDUxLThiY2EtZWRkNDgwZjI2ZWM0In0.4EdUBRRTA1uYTdGWnOP4jwnuFPZ6IrzuCBlzBdWtb31qw7B9vIX7rsiRZEUA6-Bf8hgcA-LaEkpPcl-r-csjCg"
 
-    for attempt in range(retries):
-        headers = {"User-Agent": random.choice(USER_AGENTS)}
-        response = requests.get(url, headers=headers, timeout=10)
+client = create_client_sync(url=DATABASE_URL, auth_token=AUTH_TOKEN)
+migrate(client)
 
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, "html.parser")
-            results = []
+client.execute("""
+CREATE TABLE IF NOT EXISTS users_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT,
+    os TEXT,
+    country TEXT,
+    ip TEXT,
+    search TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
 
-            for a in soup.select("a.result__a"):
-                href = a.get("href")
-                if href and "uddg=" in href:
-                    parsed = urllib.parse.parse_qs(urllib.parse.urlparse(href).query)
-                    if "uddg" in parsed:
-                        real_url = parsed["uddg"][0]
-                        if platform in real_url:
-                            results.append(real_url)
-                if len(results) >= limit:
-                    break
-            return results
-
-        elif response.status_code == 202:
-            print(f"[!] DuckDuckGo حظر مؤقت (202) - محاولة {attempt+1}/{retries}...")
-            time.sleep(random.uniform(3, 6))  # انتظر شوية وجرب ثاني
-        else:
-            print(f"[!] خطأ في DuckDuckGo: {response.status_code}")
-            break
-
-    return []
-
-
-def osint_tool(name_or_username):
-    platforms = {
-    "youtube": ["youtube.com", "youtu.be"],
-    "tiktok": ["tiktok.com"],
-    "reddit": ["reddit.com"],
-    "linkedin": ["linkedin.com"],
-    "facebook": ["facebook.com", "fb.com"],
-    "instagram": ["instagram.com"]
+# ===== منصات رئيسية =====
+PLATFORMS = {
+    "Facebook": "facebook.com",
+    "Instagram": "instagram.com",
+    "Youtube": "youtube.com",
+    "TikTok": "tiktok.com",
+    "Snapchat": "snapchat.com",
+    "Reddit": "reddit.com",
+    "Twitter": "twitter.com",
+    "Pinterest": "pinterest.com",
+    "LinkedIn": "linkedin.com",
 }
 
-    for p in platforms:
-        print(f"\n🔎 البحث في {p.capitalize()}...")
-        results = ddg_search(name_or_username, p)
-        if results:
-            for r in results:
-                print("👉", r)
-        else:
-            print("❌ لا توجد نتائج.")
-        time.sleep(random.uniform(2, 4))  # تأخير بسيط بين كل منصة
+REQUEST_DELAY = 0.3
+ddgs = DDGS()
 
+# ===== البحث في DuckDuckGo =====
+def duckduckgo_search_links(query, site=None, num_results=10):
+    search_query = f"{query} site:{site}" if site else query
+    links = []
+    try:
+        results = ddgs.text(search_query, max_results=num_results)
+        for r in results:
+            if "href" in r and r["href"]:
+                links.append(r["href"])
+            if len(links) >= num_results:
+                break
+    except Exception as e:
+        print(Fore.RED + f"⚠️ Error searching {site}: {e}")
+    return links
+
+# ===== عرض النتائج بتصميم نسخة ألفا =====
+def run_checks(identifier):
+    print(Fore.MAGENTA + "\n" + "="*60)
+    print(Fore.MAGENTA + f"🔍 Start search about: {identifier}")
+    print(Fore.MAGENTA + "="*60 + "\n")
+
+    for platform_name, domain in PLATFORMS.items():
+        print(Fore.YELLOW + f"🔍 Searching {platform_name}...")
+        links = duckduckgo_search_links(identifier, domain)
+        count = len(links)
+        print(Fore.GREEN + f"✅ {platform_name}: {count}/10")
+
+        if links:
+            for link in links:
+                print(Fore.CYAN + f"   {link}")
+        else:
+            print(Fore.RED + "   No results found.")
+
+        print(Fore.MAGENTA + "-"*60 + "\n")
+
+# ===== البرنامج الرئيسي =====
+def main():
+    print(Fore.GREEN + """
+ /$$$$$$$                                   /$$$$$$$$
+| $$__  $$                                 |_____ $$/ 
+| $$  \ $$ /$$   /$$  /$$$$$$         /$$$$$$   /$$/  
+| $$$$$$$ | $$  | $$ /$$__  $$       /$$__  $$ /$$/   
+| $$__  $$| $$  | $$| $$  \ $$      | $$  \__//$$/    
+| $$  \ $$| $$  | $$| $$  | $$      | $$     /$$/     
+| $$$$$$$/|  $$$$$$/|  $$$$$$$      | $$    /$$/      
+|_______/  \______/  \____  $$      |__/   |__/       
+                     /$$  \ $$                        
+                    |  $$$$$$/                        
+                     \______/                         
+""" + Fore.RED + "OSINT Tool - DDGS Links Only version 0.1" + Fore.GREEN + "\n")
+
+    print(Fore.WHITE + "🔎 Platforms covered: Facebook, Instagram, Youtube, TikTok, Snapchat, Reddit, Twitter, Pinterest, LinkedIn\n")
+
+    try:
+        import requests
+        ip = requests.get("https://api64.ipify.org?format=json", timeout=15).json()["ip"]
+        country = requests.get(f"https://ipapi.co/{ip}/json/", timeout=15).json().get("country_name", "Unknown")
+    except:
+        ip, country = "Unknown", "Unknown"
+
+    username = platform.node()
+    os_name = platform.system() + " " + platform.release()
+
+    while True:
+        identifier = input(Fore.CYAN + "[?] Enter username or firstname and lastname: " + Style.RESET_ALL).strip()
+        if not identifier:
+            print(Fore.RED + "[!] No input provided.")
+            continue
+
+        client.execute(
+            "INSERT INTO users_log (username, os, country, ip, search) VALUES (?, ?, ?, ?, ?)",
+            (username, os_name, country, ip, identifier)
+        )
+
+        while True:
+            confirm = input(Fore.YELLOW + "[?] Do you have permission to search this account? (yes/no): ").strip().lower()
+            if confirm in ("yes", "y"):
+                break
+            elif confirm in ("no", "n"):
+                print(Fore.RED + "[!] Permission not confirmed. Exiting.")
+                return
+            else:
+                print(Fore.RED + "[!] Invalid input. Please answer 'yes' or 'no'.")
+
+        run_checks(identifier)
+
+        again = input(Fore.MAGENTA + "\n[?] Do you want to search again? (yes/no): ").strip().lower()
+        if again not in ("yes", "y"):
+            print(Fore.GREEN + "\n[✔] Exiting OSINT tool. Bye 👋")
+            break
 
 if __name__ == "__main__":
-    query = input("[?] أدخل الاسم واللقب أو اسم المستخدم: ")
-    osint_tool(query)
+    main()
