@@ -1,62 +1,137 @@
-import requests
-from bs4 import BeautifulSoup
-import urllib.parse
+# tool.py
+import os
+import platform
 import time
-import random
+from colorama import Fore, Back, init, Style
+import requests
 
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Firefox/118.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Safari/605.1.15",
-]
+init(autoreset=True)
 
-def ddg_search(query, platform, limit=5, retries=3):
-    url = f"https://html.duckduckgo.com/html/?q={query}+site:{platform}.com"
+API_URL = os.getenv("API_URL", "https://osint-tool-production.up.railway.app/search")
 
-    for attempt in range(retries):
-        headers = {"User-Agent": random.choice(USER_AGENTS)}
-        response = requests.get(url, headers=headers, timeout=10)
+PLATFORMS = {
+    "Facebook": ("facebook.com", Back.BLUE),
+    "Instagram": ("instagram.com", Back.MAGENTA),
+    "Youtube": ("youtube.com", Back.RED),
+    "TikTok": ("tiktok.com", Back.CYAN),
+    "Snapchat": ("snapchat.com", Back.YELLOW),
+    "Reddit": ("reddit.com", Back.LIGHTRED_EX),
+    "Twitter": ("twitter.com", Back.LIGHTBLUE_EX),
+    "Pinterest": ("pinterest.com", Back.LIGHTMAGENTA_EX),
+    "LinkedIn": ("linkedin.com", Back.LIGHTCYAN_EX),
+}
 
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, "html.parser")
-            results = []
+REQUEST_DELAY = 0.3
 
-            for a in soup.select("a.result__a"):
-                href = a.get("href")
-                if href and "uddg=" in href:
-                    parsed = urllib.parse.parse_qs(urllib.parse.urlparse(href).query)
-                    if "uddg" in parsed:
-                        real_url = parsed["uddg"][0]
-                        if platform in real_url:
-                            results.append(real_url)
-                if len(results) >= limit:
-                    break
-            return results
 
-        elif response.status_code == 202:
-            print(f"[!] DuckDuckGo حظر مؤقت (202) - محاولة {attempt+1}/{retries}...")
-            time.sleep(random.uniform(3, 6))  # انتظر شوية وجرب ثاني
+def search_via_api(identifier):
+    try:
+        response = requests.post(API_URL, json={"identifier": identifier}, timeout=25)
+    except requests.exceptions.RequestException as e:
+        # طبع سبب الفشل بدون الوصول إلى response (آمن)
+        print(Fore.RED + f"[!] API request failed: {e}", flush=True)
+        return []
+
+    # هنا response موجود - نعالج الحالة
+    if response.status_code == 200:
+        try:
+            return response.json()
+        except Exception as e:
+            print(Fore.RED + f"[!] Failed parsing API JSON: {e}", flush=True)
+            return []
+    else:
+        print(Fore.RED + f"[!] API returned status {response.status_code}", flush=True)
+        try:
+            print(f"API text (start): {response.text[:400]}")
+        except Exception:
+            pass
+        return []
+
+
+def print_platform_frame(platform_name, links, color_bg):
+    header = f"{platform_name} - {len(links)}/10"
+    top = "╭─ " + header + " ─╮"
+    bottom = "╰" + "─" * (len(top) - 2) + "╯"
+    # header
+    print(color_bg + Fore.WHITE + top + Style.RESET_ALL, flush=True)
+    # body
+    if links:
+        for link in links[:10]:
+            print(Fore.CYAN + f"   {link}", flush=True)
+    else:
+        print(Fore.RED + "   No results found.", flush=True)
+    # footer
+    print(color_bg + Fore.WHITE + bottom + Style.RESET_ALL, flush=True)
+    print(flush=True)
+
+
+def ask_yes_no(question, color=Fore.YELLOW):
+    while True:
+        answer = input(color + question + " (yes/no): " + Style.RESET_ALL).strip().lower()
+        if answer in ("yes", "y"):
+            return True
+        elif answer in ("no", "n"):
+            return False
         else:
-            print(f"[!] خطأ في DuckDuckGo: {response.status_code}")
+            print(Fore.RED + "[!] Invalid input. Please answer 'yes' or 'no'.")
+
+
+def main():
+    ascii_art = r"""
+ /$$$$$$$                                   /$$$$$$$$
+| $$__  $$                                 |_____ $$/ 
+| $$  \ $$ /$$   /$$  /$$$$$$         /$$$$$$   /$$/  
+| $$$$$$$ | $$  | $$ /$$__  $$       /$$__  $$ /$$/   
+| $$__  $$| $$  | $$| $$  \ $$      | $$  \__//$$/    
+| $$  \ $$| $$  | $$| $$  | $$      | $$     /$$/     
+| $$$$$$$/|  $$$$$$/|  $$$$$$$      | $$    /$$/      
+|_______/  \______/  \____  $$      |__/   |__/       
+                     /$$  \ $$                        
+                    |  $$$$$$/                        
+                     \______/                         
+"""
+    print(Fore.GREEN + ascii_art + Fore.RED + "OSINT Tool - API Mode v1.0" + Fore.GREEN + "\n", flush=True)
+
+    print(Fore.WHITE + "🔎 Platforms covered: Facebook, Instagram, Youtube, TikTok, Snapchat, Reddit, Twitter, Pinterest, LinkedIn\n", flush=True)
+
+    # الحصول على IP و Country (غير مطلوب للعمل)
+    try:
+        ip = requests.get("https://api64.ipify.org?format=json", timeout=15).json().get("ip", "Unknown")
+        country = requests.get(f"https://ipapi.co/{ip}/json/", timeout=15).json().get("country_name", "Unknown")
+    except Exception:
+        ip, country = "Unknown", "Unknown"
+
+    username = platform.node()
+    os_name = platform.system() + " " + platform.release()
+
+    while True:
+        identifier = input(Fore.CYAN + "[?] Enter username or firstname and lastname: " + Style.RESET_ALL).strip()
+        if not identifier:
+            print(Fore.RED + "[!] No input provided.", flush=True)
+            continue
+
+        # سؤال permission قبل البحث
+        if not ask_yes_no("[?] Do you have permission to search this account?"):
+            print(Fore.RED + "[!] Permission not confirmed. Exiting.", flush=True)
+            continue
+
+        # جلب النتائج عبر API (Railway/Turso server)
+        api_results = search_via_api(identifier)
+        print(Fore.GREEN + f"[✔] Fetched {len(api_results)} results from API.", flush=True)
+
+        # عرض النتائج مصنفة حسب المنصات مع نفس التصميم
+        for platform_name, (domain, color_bg) in PLATFORMS.items():
+            links = [r["link"] for r in api_results if r.get("platform") == platform_name]
+            print_platform_frame(platform_name, links, color_bg)
+            # قليل من التأخير بين الطباعة لتحسين الـ UX
+            time.sleep(REQUEST_DELAY)
+
+        # إعادة البحث
+        if not ask_yes_no("\n[?] Do you want to search again?"):
+            print(Fore.GREEN + "\n[✔] Exiting OSINT tool. Bye 👋", flush=True)
             break
-
-    return []
-
-
-def osint_tool(name_or_username):
-    platforms = ["youtube", "tiktok", "reddit", "linkedin", "facebook", "instagram"]
-
-    for p in platforms:
-        print(f"\n🔎 البحث في {p.capitalize()}...")
-        results = ddg_search(name_or_username, p)
-        if results:
-            for r in results:
-                print("👉", r)
-        else:
-            print("❌ لا توجد نتائج.")
-        time.sleep(random.uniform(2, 4))  # تأخير بسيط بين كل منصة
 
 
 if __name__ == "__main__":
-    query = input("[?] أدخل الاسم واللقب أو اسم المستخدم: ")
-    osint_tool(query)
+    main()
+
