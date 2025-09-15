@@ -1,10 +1,9 @@
 import requests
 from bs4 import BeautifulSoup
 
-# دالة للبحث في Bing
 def bing_search(query, platform, limit=5):
     headers = {
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) "
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                       "AppleWebKit/537.36 (KHTML, like Gecko) "
                       "Chrome/117.0 Safari/537.36"
     }
@@ -18,13 +17,12 @@ def bing_search(query, platform, limit=5):
     soup = BeautifulSoup(response.text, "html.parser")
     results = []
 
-    # جميع الروابط في نتائج البحث
-    for link in soup.find_all("a", href=True):
-        href = link["href"]
-
-        # نتاكد انها فعلا رابط للمنصة المطلوبة
-        if href.startswith("http") and platform in href and "bing.com" not in href:
-            if href not in results:
+    # نركز فقط على نتائج البحث الرئيسية
+    for item in soup.find_all("li", {"class": "b_algo"}):
+        a_tag = item.find("a", href=True)
+        if a_tag:
+            href = a_tag["href"]
+            if href.startswith("http") and platform in href:
                 results.append(href)
         if len(results) >= limit:
             break
