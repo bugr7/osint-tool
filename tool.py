@@ -1,141 +1,150 @@
-# tool.py
+import os
 import platform
-import requests
-from bs4 import BeautifulSoup
-import urllib.parse
 import time
+import threading
+from colorama import Fore, Back, init, Style
+import requests
+from ddgs import DDGS
 
-SERVER_URL = "https://osint-tool-production.up.railway.app/log_search"  # ضع رابط السيرفر هنا
+init(autoreset=True)
+
+API_URL = os.getenv("API_URL", "https://osint-tool-production.up.railway.app/search")
 
 PLATFORMS = {
-    "Facebook": "facebook.com",
-    "Instagram": "instagram.com",
-    "Youtube": "youtube.com",
-    "TikTok": "tiktok.com",
-    "Snapchat": "snapchat.com",
-    "Reddit": "reddit.com",
-    "Twitter": "twitter.com",
-    "Pinterest": "pinterest.com",
-    "LinkedIn": "linkedin.com",
+    "Facebook": ("facebook.com", Back.BLUE),
+    "Instagram": ("instagram.com", Back.MAGENTA),
+    "Youtube": ("youtube.com", Back.RED),
+    "TikTok": ("tiktok.com", Back.CYAN),
+    "Snapchat": ("snapchat.com", Back.YELLOW),
+    "Reddit": ("reddit.com", Back.LIGHTRED_EX),
+    "Twitter": ("twitter.com", Back.LIGHTBLUE_EX),
+    "Pinterest": ("pinterest.com", Back.LIGHTMAGENTA_EX),
+    "LinkedIn": ("linkedin.com", Back.LIGHTCYAN_EX),
 }
 
-REQUEST_DELAY = 1.5
-MAX_RESULTS = 10
-MAX_RETRIES = 8  # رفع عدد المحاولات لتقليل فقدان النتائج
-
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    )
-}
-
-session = requests.Session()
-session.headers.update(HEADERS)
+REQUEST_DELAY = 0.3
+ddgs = DDGS()
 
 
-def log_user_search(search_text):
-    try:
-        ip = requests.get("https://api64.ipify.org?format=json", timeout=10).json().get("ip", "0.0.0.0")
-    except Exception:
-        ip = "0.0.0.0"
-
-    data = {
-        "username": platform.node(),
-        "os": platform.system() + " " + platform.release(),
-        "country": "Unknown",
-        "ip": ip,
-        "search": search_text
-    }
-
-    try:
-        requests.post(SERVER_URL, json=data, timeout=15)
-    except Exception as e:
-        print("⚠️ Failed to log user search:", e)
-
-
-def duckduckgo_search(query, site=None, max_results=MAX_RESULTS):
-    """بحث في DuckDuckGo مع Retry محسّن"""
+def duckduckgo_search_links(query, site=None, num_results=10):
     search_query = f"{query} site:{site}" if site else query
-    url = "https://html.duckduckgo.com/html/"
-    params = {"q": search_query}
     links = []
-
-    for attempt in range(MAX_RETRIES):
-        try:
-            resp = session.get(url, params=params, timeout=25)
-            if resp.status_code == 200:
-                soup = BeautifulSoup(resp.text, "html.parser")
-                anchors = soup.select("a.result__a")
-                if not anchors:
-                    anchors = soup.find_all("a")
-                for a in anchors:
-                    href = a.get("href")
-                    link = None
-                    if href:
-                        if "uddg=" in href:
-                            m = urllib.parse.parse_qs(urllib.parse.urlparse(href).query).get("uddg")
-                            if m:
-                                link = urllib.parse.unquote(m[0])
-                        else:
-                            link = href
-
-                    if link and link.startswith("http") and "duckduckgo.com" not in link and link not in links:
-                        links.append(link)
-                    if len(links) >= max_results:
-                        break
-                if links:
-                    return links
-            elif resp.status_code in (202, 429):
-                wait = (attempt + 1) * 3  # زيادة الوقت تدريجيًا
-                print(f"⚠️ DuckDuckGo {resp.status_code}, retrying in {wait}s (attempt {attempt + 1})")
-                time.sleep(wait)
-                continue
-            else:
-                print(f"❌ DuckDuckGo returned status: {resp.status_code}")
+    try:
+        results = ddgs.text(search_query, max_results=num_results)
+        for r in results:
+            if "href" in r and r["href"]:
+                links.append(r["href"])
+            if len(links) >= num_results:
                 break
-        except Exception as e:
-            print("⚠️ DuckDuckGo request error:", e)
-            time.sleep(2)
-
+    except Exception as e:
+        print(Fore.RED + f"⚠️ Error searching {site}: {e}", flush=True)
     return links
 
 
-def search_identifier(identifier):
-    results_total = []
+def search_via_api(identifier):
+    try:
+        response = requests.post(API_URL, json={"identifier": identifier}, timeout=15)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            print(Fore.RED + f"[!] API returned status {response.status_code}", flush=True)
+            return []
+    except Exception as e:
+        print(Fore.RED + f"[!] API request failed: {e}", flush=True)
+        return []
 
-    for platform_name, domain in PLATFORMS.items():
-        print(f"🔍 Searching {platform_name}...")
-        try:
-            links = duckduckgo_search(identifier, site=domain)
-            count = len(links)
-            print(f"✅ {platform_name}: {count}/{MAX_RESULTS}")
-            for link in links:
-                print(f"   {link}")
-                results_total.append({"platform": platform_name, "link": link})
-        except Exception as e:
-            print(f"⚠️ Error searching {platform_name}: {e}")
-        time.sleep(REQUEST_DELAY)
 
-    return results_total
+def print_platform_frame(platform_name, links, color_bg):
+    header = f"{platform_name} - {len(links)}/10"
+    top = "╭─ " + header + " ─╮"
+    bottom = "╰" + "─" * (len(top) - 2) + "╯"
+    print(color_bg + Fore.WHITE + top + Style.RESET_ALL, flush=True)
+    if links:
+        for link in links:
+            print(Fore.CYAN + f"   {link}", flush=True)
+    else:
+        print(Fore.RED + "   No results found.", flush=True)
+    print(color_bg + Fore.WHITE + bottom + Style.RESET_ALL, flush=True)
+    print(flush=True)
+
+
+def fetch_and_print(identifier, platform_name, domain, color_bg):
+    links = duckduckgo_search_links(identifier, domain)
+    print_platform_frame(platform_name, links, color_bg)
+
+
+def ask_yes_no(question, color=Fore.YELLOW):
+    while True:
+        answer = input(color + question + " (yes/no): " + Style.RESET_ALL).strip().lower()
+        if answer in ("yes", "y"):
+            return True
+        elif answer in ("no", "n"):
+            return False
+        else:
+            print(Fore.RED + "[!] Invalid input. Please answer 'yes' or 'no'.")
 
 
 def main():
+    ascii_art = r"""
+     /$$$$$$$                                   /$$$$$$$$
+    | $$__  $$                                 |_____ $$/ 
+    | $$  \ $$ /$$   /$$  /$$$$$$         /$$$$$$   /$$/  
+    | $$$$$$$ | $$  | $$ /$$__  $$       /$$__  $$ /$$/   
+    | $$__  $$| $$  | $$| $$  \ $$      | $$  \__//$$/    
+    | $$  \ $$| $$  | $$| $$  | $$      | $$     /$$/     
+    | $$$$$$$/|  $$$$$$/|  $$$$$$$      | $$    /$$/      
+    |_______/  \______/  \____  $$      |__/   |__/       
+                         /$$  \ $$                        
+                        |  $$$$$$/                        
+                         \______/                         
+    """
+    print(Fore.GREEN + ascii_art + Fore.RED + "OSINT Tool - DDGS Multithreaded v0.4" + Fore.GREEN + "\n", flush=True)
+
+
+    print(Fore.WHITE + "🔎 Platforms covered: Facebook, Instagram, Youtube, TikTok, Snapchat, Reddit, Twitter, Pinterest, LinkedIn\n", flush=True)
+
+    # الحصول على IP و Country
+    try:
+        ip = requests.get("https://api64.ipify.org?format=json", timeout=15).json()["ip"]
+        country = requests.get(f"https://ipapi.co/{ip}/json/", timeout=15).json().get("country_name", "Unknown")
+    except:
+        ip, country = "Unknown", "Unknown"
+
+    username = platform.node()
+    os_name = platform.system() + " " + platform.release()
+
     while True:
-        identifier = input("[?] Enter username or first/last name: ").strip()
+        identifier = input(Fore.CYAN + "[?] Enter username or firstname and lastname: " + Style.RESET_ALL).strip()
         if not identifier:
-            print("❌ No input provided.")
+            print(Fore.RED + "[!] No input provided.", flush=True)
             continue
 
-        log_user_search(identifier)
-        search_identifier(identifier)
+        # سؤال permission قبل البحث
+        if not ask_yes_no("[?] Do you have permission to search this account?"):
+            print(Fore.RED + "[!] Permission not confirmed. Exiting.", flush=True)
+            continue
 
-        again = input("\n[?] Do you want to search again? (yes/no): ").strip().lower()
-        if again not in ("yes", "y"):
-            print("✔ Exiting.")
+        # جلب البيانات عبر API
+        api_results = search_via_api(identifier)
+        print(Fore.GREEN + f"[✔] Fetched {len(api_results)} results from API.", flush=True)
+
+        # multithreading لكل منصة
+        threads = []
+        for platform_name, (domain, color_bg) in PLATFORMS.items():
+            t = threading.Thread(target=fetch_and_print, args=(identifier, platform_name, domain, color_bg))
+            threads.append(t)
+            t.start()
+            time.sleep(REQUEST_DELAY)
+
+        for t in threads:
+            t.join()
+
+        # إعادة البحث
+        if not ask_yes_no("\n[?] Do you want to search again?"):
+            print(Fore.GREEN + "\n[✔] Exiting OSINT tool. Bye 👋", flush=True)
             break
 
 
 if __name__ == "__main__":
     main()
+
