@@ -18,14 +18,14 @@ def bing_search(query, platform, limit=5):
     soup = BeautifulSoup(response.text, "html.parser")
     results = []
 
+    # جميع الروابط في نتائج البحث
     for link in soup.find_all("a", href=True):
         href = link["href"]
-        # نحول الروابط الداخلية إلى روابط كاملة
-        if href.startswith("/"):
-            href = "https://www.bing.com" + href
 
-        if platform in href and href not in results:
-            results.append(href)
+        # نتاكد انها فعلا رابط للمنصة المطلوبة
+        if href.startswith("http") and platform in href and "bing.com" not in href:
+            if href not in results:
+                results.append(href)
         if len(results) >= limit:
             break
 
