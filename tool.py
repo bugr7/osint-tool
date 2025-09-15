@@ -20,6 +20,10 @@ def bing_search(query, platform, limit=5):
 
     for link in soup.find_all("a", href=True):
         href = link["href"]
+        # نحول الروابط الداخلية إلى روابط كاملة
+        if href.startswith("/"):
+            href = "https://www.bing.com" + href
+
         if platform in href and href not in results:
             results.append(href)
         if len(results) >= limit:
@@ -30,7 +34,6 @@ def bing_search(query, platform, limit=5):
 
 def osint_tool(name_or_username):
     platforms = ["youtube", "tiktok", "reddit", "linkedin"]
-    all_results = {}
 
     for p in platforms:
         print(f"\n🔎 البحث في {p.capitalize()}...")
