@@ -66,7 +66,7 @@ PLATFORMS = {
 }
 
 
-REQUEST_DELAY = float(os.getenv("REQUEST_DELAY", 1.5))  # تأخير افتراضي
+REQUEST_DELAY = float(os.getenv("REQUEST_DELAY", 1.5))  
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", 2))
 
 
@@ -229,4 +229,5 @@ def search():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+
 
