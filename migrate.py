@@ -1,13 +1,10 @@
 # migrate.py
 def migrate(client):
-    """
-    يتأكد من وجود الأعمدة المطلوبة في جدول users_log.
-    إذا لم تكن موجودة، يضيفها.
-    """
+
     required_columns = ["username", "os", "country", "ip", "search", "created_at"]
 
     try:
-        # بعض إصدارات libsql-client تعيد rows مباشرة أو Attribute .rows
+
         res = client.execute("PRAGMA table_info(users_log)")
         rows = None
         if hasattr(res, "rows"):
@@ -22,7 +19,6 @@ def migrate(client):
     except Exception:
         existing_columns = []
 
-    # إذا لم يكن الجدول موجودًا إطلاقًا، ننشئه
     if "username" not in existing_columns and "search" not in existing_columns:
         try:
             client.execute("""
@@ -39,7 +35,7 @@ def migrate(client):
         except Exception:
             pass
 
-    # الآن نتأكد من الأعمدة
+
     for column in required_columns:
         if column not in existing_columns:
             try:
@@ -50,5 +46,6 @@ def migrate(client):
                 else:
                     client.execute(f"ALTER TABLE users_log ADD COLUMN {column} TEXT")
             except Exception:
-                # تجاهل الأخطاء هنا لأن ALTER قد يفشل على بعض قواعد البيانات القديمة
+    
                 pass
+
