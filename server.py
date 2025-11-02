@@ -12,7 +12,6 @@ import urllib.parse
 
 app = Flask(__name__)
 
-# ===== إعداد Turso عبر Railway Variables =====
 DATABASE_URL = os.getenv("DATABASE_URL")
 AUTH_TOKEN = os.getenv("AUTH_TOKEN")
 
@@ -23,7 +22,7 @@ try:
 except Exception as e:
     print("⚠️ Turso init failed:", e)
 
-# إنشاء الجداول
+
 if client:
     try:
         client.execute("""
@@ -53,7 +52,7 @@ if client:
     except Exception as e:
         print("Error creating search_cache:", e)
 
-# ===== المنصات =====
+
 PLATFORMS = {
     "Facebook": "facebook.com",
     "Instagram": "instagram.com",
@@ -66,11 +65,11 @@ PLATFORMS = {
     "LinkedIn": "linkedin.com",
 }
 
-# إعدادات الشبكة
+
 REQUEST_DELAY = float(os.getenv("REQUEST_DELAY", 1.5))  # تأخير افتراضي
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", 2))
 
-# جلسة requests مع Header ثابت
+
 session = requests.Session()
 HEADERS = {
     "User-Agent": (
@@ -126,7 +125,7 @@ def duckduckgo_search_links(query, site=None, num_results=10):
                     if len(links) >= num_results:
                         break
 
-                # فالباك Regex
+       
                 if not links:
                     found = re.findall(r'href="(https?://[^"]+)"', resp.text)
                     for link in found:
@@ -164,7 +163,7 @@ def search():
 
         print(f"🔍 Searching for: {identifier}", flush=True)
 
-        # سجل البحث
+        
         if client:
             try:
                 client.execute(
@@ -178,7 +177,7 @@ def search():
 
         for platform_name, domain in PLATFORMS.items():
             try:
-                # كاش
+                
                 cached = []
                 if client:
                     try:
@@ -200,7 +199,7 @@ def search():
                         results.append({"platform": platform_name, "link": link})
                     continue
 
-                # بحث جديد
+                
                 links = duckduckgo_search_links(identifier, domain, num_results=10)
                 for link in links:
                     results.append({"platform": platform_name, "link": link})
@@ -230,3 +229,4 @@ def search():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+
