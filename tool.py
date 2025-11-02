@@ -9,7 +9,7 @@ from ddgs import DDGS
 
 init(autoreset=True)
 
-# ===== إعداد Turso =====
+
 DATABASE_URL = "https://search-osmoh.aws-eu-west-1.turso.io"  
 AUTH_TOKEN = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3NTc0MjkxNzEsImlkIjoiMGMwODllMjUtN2RiMC00Y2I1LWJhMDAtYWI1NTgxZjNjYjAxIiwicmlkIjoiYTM2YjJhZGQtNTU5NC00NDUxLThiY2EtZWRkNDgwZjI2ZWM0In0.4EdUBRRTA1uYTdGWnOP4jwnuFPZ6IrzuCBlzBdWtb31qw7B9vIX7rsiRZEUA6-Bf8hgcA-LaEkpPcl-r-csjCg"
 
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS users_log (
 )
 """)
 
-# ===== منصات رئيسية =====
+
 PLATFORMS = {
     "Facebook": "facebook.com",
     "Instagram": "instagram.com",
@@ -44,7 +44,7 @@ PLATFORMS = {
 REQUEST_DELAY = 0.3
 ddgs = DDGS()
 
-# ===== البحث في DuckDuckGo =====
+
 def duckduckgo_search_links(query, site=None, num_results=10):
     search_query = f"{query} site:{site}" if site else query
     links = []
@@ -59,7 +59,7 @@ def duckduckgo_search_links(query, site=None, num_results=10):
         print(Fore.RED + f"⚠️ Error searching {site}: {e}")
     return links
 
-# ===== عرض النتائج بتصميم نسخة ألفا =====
+
 def run_checks(identifier):
     print(Fore.MAGENTA + "\n" + "="*60)
     print(Fore.MAGENTA + f"🔍 Start search about: {identifier}")
@@ -79,7 +79,7 @@ def run_checks(identifier):
 
         print(Fore.MAGENTA + "-"*60 + "\n")
 
-# ===== البرنامج الرئيسي =====
+
 def main():
     print(Fore.GREEN + """
  /$$$$$$$                                   /$$$$$$$$
@@ -137,3 +137,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
